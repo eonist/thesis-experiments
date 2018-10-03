@@ -7,8 +7,9 @@ from tabulate import tabulate
 
 from config import Path, CV_SPLITS
 from models.experiment import Experiment
+from utils.prints import Print
 from utils.progress_bar import ProgressBar
-from utils.utils import create_path_if_not_existing, datestamp_str
+from utils.utils import create_path_if_not_existing, datestamp_str, flatten
 
 pandas.set_option('display.max_rows', 500)
 pandas.set_option('display.max_columns', 500)
@@ -46,7 +47,7 @@ class ExperimentSet:
         self.params = dict(kwargs)
         self.init_time = datetime.datetime.now()
         self.exp_params_list = []
-        self.results = []
+        self.experiments = []
 
         self.description = description
         self.hypothesis = hypothesis
@@ -130,21 +131,65 @@ class ExperimentSet:
     def run_experiments(self):
         pb = ProgressBar.include("exp_set", iterable=self.exp_params_list)
 
-        experiments = []
-
         for exp_params in self.exp_params_list:
             exp = Experiment.from_params(exp_params)
             exp.cv_splits = self.cv_splits
 
             exp.run()
-            experiments.append(exp)
+            self.experiments.append(exp)
 
-        self.results = [exp.results for exp in experiments]
+        for exp in self.experiments:
+            print("\n\n")
+            Print.success("Experiment")
+            print(pandas.DataFrame([exp.raw_params]))
+            print("")
+            Print.point("Results\n")
+            print("Accuracy: {}\n".format(round(exp.results["accuracy"], 2)))
+            print(pandas.DataFrame(exp.results["confusion_matrix"]))
+            print("\n")
 
-        print(pandas.DataFrame(self.results))
         pb.close()
 
-        self.generate_report()
+        self.generate_report2()
+
+    def generate_report2(self):
+        create_path_if_not_existing(Path.exp_logs)
+
+        fn = self.filename("exp_set_results", "md")
+        fp = "/".join([Path.exp_logs, fn])
+
+        with open(fp, 'w+') as file:
+            res = "# Experiment Set\n"
+            res += "{}\n".format(datestamp_str(self.init_time))
+            res += "\n\n"
+            if self.description:
+                res += "#### Description\n"
+                res += self.description + "\n"
+
+            if self.hypothesis:
+                res += "#### Hypothesis\n"
+                res += self.hypothesis + "\n"
+
+            res += "\n\n"
+            res += "## Performance by configuration\n\n"
+
+            experiments = sorted(self.experiments, key=lambda x: x.results["accuracy"], reverse=True)
+
+            for exp in experiments:
+                res += "---\n\n"
+                res += "### Accuracy: {}\n".format(round(exp.results["accuracy"], 2))
+
+                print(exp.raw_params)
+                print(flatten(exp.raw_params))
+                params_df = pandas.DataFrame([flatten(exp.raw_params)])
+                res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+
+                res += "#### Confusion Matrix\n"
+
+                c_matrix_df = pandas.DataFrame(exp.results["confusion_matrix"])
+                res += tabulate(c_matrix_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+
+            file.write(res)
 
     def generate_report(self):
         create_path_if_not_existing(Path.exp_logs)
@@ -167,10 +212,10 @@ class ExperimentSet:
             res += "\n\n"
             res += "### Performance by configuration\n\n"
 
-            df_perf1 = pandas.DataFrame(self.results, copy=True)
-            print(df_perf1)
+            results = [exp.results for exp in self.experiments]
+
+            df_perf1 = pandas.DataFrame(results, copy=True)
             df_perf1 = df_perf1.drop("confusion_matrix", axis=1)
-            print(df_perf1)
             # df_perf1["Config Summary"] = [" - ".join(exp_config.summary()) for exp_config in exp_configs]
             df_perf1.sort_values(by=["accuracy"], axis=0, ascending=False, inplace=True)
             res += tabulate(df_perf1, tablefmt="pipe", headers="keys", showindex=False) + "\n"
@@ -184,13 +229,26 @@ class ExperimentSet:
 
 
 if __name__ == '__main__':
-    exp_set = ExperimentSet(
-        description="Compare using CSP with and without a bandpass filter",
-        classifier="svm",
-        dataset_type="arm-foot",
-        svm={"kernel": "linear"},
-        csp={"n_components": 2, "log": True},
-        mne_filter={"h_freq": 30, "l_freq": 6}
-    )
+    params = {
+        "dataset_type": "arm-foot",
+        # "classifier": "svm",
+        "preprocessor": "mne_filter;csp",
+        "svm": {
+            # "kernel": "linear"
+        },
+        "mne_filter": {
+            "l_freq": 6,
+            # "h_freq": 30
+        },
+        "csp": {
+            # "log": True,
+            # "n_components": 2
+        },
+        "lda": {
+            # "solver": "svd"
+        }
+    }
+
+    exp_set = ExperimentSet(cv_splits=3, **params)
 
     exp_set.run_experiments()

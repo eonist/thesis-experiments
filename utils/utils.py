@@ -1,3 +1,4 @@
+import collections
 import datetime
 import os
 import pathlib
@@ -52,6 +53,17 @@ def notify(title, text):
     os.system("""
               osascript -e 'display notification "{}" with title "{}"'
               """.format(text, title))
+
+
+def flatten(d, parent_key='', sep='__'):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, collections.MutableMapping):
+            items.extend(flatten(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 
 def dict_set(data, multilevel_key, value, index=0):
