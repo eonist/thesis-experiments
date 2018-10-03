@@ -13,6 +13,10 @@ class DataSet:
         self.is_child = is_child
         self.label_map = label_map
 
+    @classmethod
+    def empty(cls):
+        return cls([], [])
+
     def split(self, include_val=True):
         if self.is_child:
             raise Print.build_except("Tried to split a child dataset.", self)
@@ -34,7 +38,7 @@ class DataSet:
         return res
 
     def shuffle(self):
-        p = np.random.permutation(len(self.X))
+        p = np.random.permutation(self.length)
         self.X = self.X[p]
         self.y = self.y[p]
 
@@ -85,8 +89,8 @@ class DataSet:
         return ds
 
     def reduced_dataset(self, labels):
-        y = np.array([self.y[i] for i in range(len(self.y)) if self.y[i] in labels])
-        X = np.array([self.X[i] for i in range(len(self.y)) if self.y[i] in labels])
+        y = np.array([self.y[i] for i in range(self.length) if self.y[i] in labels])
+        X = np.array([self.X[i] for i in range(self.length) if self.y[i] in labels])
 
         return DataSet(X, y)
 
@@ -105,8 +109,14 @@ class DataSet:
                 return key
 
     def __add__(self, other):
+        if len(self.X) != len(self.y) or len(other.X) != len(other.y):
+            raise Exception("Mismatch in X and y length in DataSet")
+
+        if self.length == 0: return other
+        if other.length == 0: return self
+
         X = np.concatenate((self.X, other.X))
-        Y = np.concatenate((self.y, other.y))
+        y = np.concatenate((self.y, other.y))
         is_child = (self.is_child or other.is_child)
 
-        return DataSet(X, Y, is_child)
+        return DataSet(X, y, is_child)

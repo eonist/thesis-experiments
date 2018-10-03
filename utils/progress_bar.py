@@ -1,4 +1,12 @@
+import enum
+
 from tqdm import tqdm
+
+
+class State(enum.Enum):
+    READY = 0
+    RUNNING = 1
+    FINISHED = 2
 
 
 class ProgressBar:
@@ -10,36 +18,57 @@ class ProgressBar:
             ProgressBar()
         return ProgressBar.__instance
 
-    def __init__(self, **kwargs):
+    def __init__(self):
         if ProgressBar.__instance is not None:
             raise Exception("This class is a singleton!")
 
-        super().__init__(**kwargs)
         ProgressBar.__instance = self
 
         self.progress = 0
         self.total = 1
-        self.bar = tqdm()
-        self.ids = []
+        self.tqdm = None
+        self.pb_ids = []
+        self.state = State.READY
 
     @classmethod
-    def include(cls, id, iterable=None, total=None):
+    def include(cls, pb_id, iterable=None, total=None):
         pb = cls.get_instance()
 
-        if id not in pb.ids:
-            pb.ids.append(id)
-            if total is not None:
-                pb.total *= total
-            elif iterable is not None:
-                pb.total *= len(iterable)
+        if pb.state == State.FINISHED:
+            pb.reset()
 
-            pb.bar.total = pb.total
+        if pb.state == State.READY:
+            if pb_id not in pb.pb_ids:
+                pb.pb_ids.append(pb_id)
+                if total is not None:
+                    pb.total *= total
+                elif iterable is not None:
+                    pb.total *= len(iterable)
 
         return pb
 
-    def increment(self):
-        self.progress += 1
-        self.bar.update(1)
+    def increment(self, pb_id=None):
+        if pb_id is not None and pb_id == self.pb_ids[-1]:
+            if self.state == State.READY:
+                self.tqdm = tqdm()
+                self.tqdm.total = self.total
+
+                self.state = State.RUNNING
+
+            if self.state == State.RUNNING:
+                self.progress += 1
+                self.tqdm.update(1)
+
+                if self.progress >= self.total:
+                    self.state = State.FINISHED
 
     def reset(self):
+        self.state = State.READY
         self.progress = 0
+        self.total = 1
+        self.tqdm = None
+        self.pb_ids = []
+
+    def close(self):
+        self.reset()
+        self.__instance = None

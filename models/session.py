@@ -6,6 +6,8 @@ import requests
 
 from config import URL, label_map, WINDOW_LENGTH, Path
 from models.dataset import DataSet
+from utils.progress_bar import ProgressBar
+from utils.utils import func_name
 
 
 class Session:
@@ -26,7 +28,7 @@ class Session:
         if only_fn:
             return fn
         else:
-            return "/".join([Path.data_dir, fn])
+            return "/".join([Path.session_cache, fn])
 
     @classmethod
     def from_api(cls, id):
@@ -53,7 +55,7 @@ class Session:
             json.dump(json_data, outfile)
 
     def is_cached(self):
-        fns = os.listdir(Path.data_dir)
+        fns = os.listdir(Path.session_cache)
 
         return self.cache_fp(only_fn=True) in fns
 
@@ -123,9 +125,14 @@ class Session:
 
     @classmethod
     def combined_dataset(cls, ids):
-        dataset = cls.from_api(ids[0]).dataset()
-        for id in ids[1:]:
+        pb_id = func_name()
+        pb = ProgressBar.include(pb_id, iterable=ids)
+
+        dataset = DataSet.empty()
+        for id in ids:
             dataset = dataset + cls.from_api(id).dataset()
+
+            pb.increment(pb_id)
 
         return dataset
 

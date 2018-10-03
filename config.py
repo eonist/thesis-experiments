@@ -1,3 +1,14 @@
+# <--- NUMBER CONSTANTS --->
+
+CV_SPLITS = 3
+TEST_SIZE = 0.2
+
+# <--- FORMAT --->
+
+TIME_FORMAT = '%H:%M:%S'
+DATE_FORMAT = '%d.%m.%Y %H:%M'
+DATE_FILE_FORMAT = '%d%m%H%M'
+
 # <--- API COMMUNICATION --->
 import os
 
@@ -30,3 +41,6 @@ class Path:
     _project_root = os.path.dirname(os.path.realpath(__file__))
 
     data_dir = "{}/data".format(_project_root)
+
+    session_cache = "{}/data/session_cache".format(_project_root)
+    exp_logs = "{}/data/exp_logs".format(_project_root)
