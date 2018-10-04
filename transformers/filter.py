@@ -1,5 +1,5 @@
+import mne
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QFormLayout, QSpinBox, QPushButton, QLabel
 from scipy.signal import butter, lfilter
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -7,24 +7,56 @@ from utils.prints import Print
 
 
 class Filter(BaseEstimator, TransformerMixin):
-    name = "Filter"
+    name = "filter"
 
-    def __init__(self, l_freq=7, h_freq=30, picks=None):
+    def __init__(self, kernel="mne", l_freq=7, h_freq=30, picks=None):
         self.l_freq = l_freq
         self.h_freq = h_freq
         self.picks = picks
         self.fs = 250
-
-    def transform(self, X, *args):
-        if self.l_freq >= self.h_freq:
-            Print.warning("Invalid filter: l_freq: {}, h_freq: {}".format(self.l_freq, self.h_freq))
-            return X
-
-        X = np.asarray([self.butter_bandpass_filter(x, self.l_freq, self.h_freq, self.fs) for x in X])
-        return X
+        self.kernel = kernel
 
     def fit(self, *_):
         return self
+
+    def transform(self, X, *args):
+        try:
+            if self.kernel == "mne":
+                return self.mne_transform(X, *args)
+            elif self.kernel == "custom":
+                return self.custom_transform(X, *args)
+            else:
+                raise Exception("Filter kernel \"{}\" not recognized".format(self.kernel))
+        except Exception as e:
+            print("filter")
+            Print.ex(e)
+
+    # <--- MNE FILTER METHODS --->
+
+    def mne_transform(self, X, *args):
+        info = mne.create_info(
+            ch_names=['C3', 'C4', 'P3', 'P4'],
+            ch_types=['eeg', 'eeg', 'eeg', 'eeg'],
+            sfreq=self.fs
+        )
+
+        raws = [mne.io.RawArray(x, info) for x in X]
+        raws = [raw.filter(self.l_freq, self.h_freq, fir_design='firwin', skip_by_annotation='edge') for raw in raws]
+
+        X = np.array([data for data, times in [raw[:] for raw in raws]])
+
+        print("\n\n")
+        Print.start("PIPELINE START")
+        print("")
+        Print.point("Filter")
+        Print.data(np.shape(X))
+
+        return X
+
+    # <--- CUSTOM FILTER METHODS --->
+
+    def custom_transform(self, X, *args):
+        return np.asarray([self.butter_bandpass_filter(x, self.l_freq, self.h_freq, self.fs) for x in X])
 
     @staticmethod
     def butter_bandpass(lowcut, highcut, fs, order=5):
@@ -39,19 +71,3 @@ class Filter(BaseEstimator, TransformerMixin):
         b, a = self.butter_bandpass(lowcut, highcut, fs, order=order)
         y = lfilter(b, a, data, axis=0)
         return y
-
-    @staticmethod
-    def control_panel():
-        print("creating panel")
-        res = QWidget()
-        form_layout = QFormLayout()
-
-        form_layout.addRow("l_freq", QSpinBox())
-        form_layout.addRow("h_freq", QSpinBox())
-
-        button = QPushButton()
-        form_layout.addRow("Submit", button)
-
-        res.setLayout(form_layout)
-        print(res)
-        return QLabel("Hei")

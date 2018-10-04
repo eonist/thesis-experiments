@@ -1,28 +1,53 @@
 import numpy as np
 import scipy.linalg as la
+from mne.decoding import CSP as MneCSP
 from numpy.linalg import multi_dot as dot
-from sklearn.base import BaseEstimator, TransformerMixin
+
+from utils.exceptions import InvalidKernel
+from utils.prints import Print
 
 
-class CSP(BaseEstimator, TransformerMixin):
-    name = "CSP"
+class CSP(MneCSP):
+    name = "csp"
 
-    def __init__(self, avg_power=False):
-        self.filters = None
-        self.avg_power = avg_power
+    def __init__(self, kernel="mne", n_components=4, **kwargs):
+        super().__init__(n_components=n_components, transform_into="csp_space", **kwargs)
+        self.kernel = kernel
+        self.filters_ = None
+
+        Print.data(self.n_components)
 
     def transform(self, X, *args):
-        X = np.asarray([np.dot(self.filters, sample) for sample in X])
-
-        new_shape = np.shape(X)
-
-        X = np.reshape(X, [new_shape[0], new_shape[1] * new_shape[2], new_shape[3]])
-        if self.avg_power:
-            return (X ** 2).mean(axis=2)
+        if self.kernel == "mne":
+            X = super(CSP, self).transform(X)
+        elif self.kernel == "custom":
+            X = self.custom_transform(X, *args)
         else:
-            return X
+            raise InvalidKernel(self.kernel)
+
+        print("")
+        Print.point("CSP")
+        Print.data(self.kernel)
+        Print.data(self.n_components)
+        Print.data(np.shape(X))
+
+        return X
 
     def fit(self, X, y):
+        if self.kernel == "mne":
+            super(CSP, self).fit(X, y)
+        elif self.kernel == "custom":
+            self.custom_fit(X, y)
+        else:
+            raise InvalidKernel(self.kernel)
+
+        Print.data(np.shape(self.filters_))
+
+        return self
+
+    # <--- CUSTOM CSP METHODS --->
+
+    def custom_fit(self, X, y):
         if len(y) < 2:
             print("Must have at least 2 tasks for filtering.")
             return self
@@ -60,18 +85,18 @@ class CSP(BaseEstimator, TransformerMixin):
                 filters[1] = self.spatial_filter(not_Rx, Rx)
                 break
 
-        self.filters = filters
-        return self
+        self.filters_ = filters[0]
 
-    # <--- HELPER METHODS --->
+    def custom_transform(self, X, *args):
+        filters = self.filters_[:self.n_components]
+        X = np.asarray([np.dot(filters, sample) for sample in X])
+        return X
+        # new_shape = np.shape(X)
+        # return np.reshape(X, [new_shape[0], new_shape[1] * new_shape[2], new_shape[3]])
 
     @staticmethod
     def cov_matrix(m):
-        """
-        Calculate the covariance matrix
-        https://en.wikipedia.org/wiki/Covariance_matrix
-        """
-
+        """ Calculate the covariance matrix """
         return np.cov(m)
 
     @staticmethod

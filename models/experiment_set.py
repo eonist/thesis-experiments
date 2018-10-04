@@ -7,42 +7,50 @@ from tabulate import tabulate
 
 from config import Path, CV_SPLITS
 from models.experiment import Experiment
+from utils.enums import DSType
 from utils.prints import Print
 from utils.progress_bar import ProgressBar
-from utils.utils import create_path_if_not_existing, datestamp_str, flatten
+from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
 
 pandas.set_option('display.max_rows', 500)
 pandas.set_option('display.max_columns', 500)
 pandas.set_option('display.width', 1000)
 
+# <--- PARAMETER GRIDS --->
+
+param_grid = {
+    "dataset_type": ["none_rest", "arm_foot", "left_right"],
+    "classifier": ["svm", "lda"],
+    "preprocessor": [
+        "filter;csp;mean_power",
+        "csp;mean_power",
+        "emd;stats"
+    ]
+}
+
+conditional_param_grid = {
+    "svm": {
+        "kernel": ["linear", "rbf", "sigmoid"]
+    },
+    "filter": {
+        "kernel": ["mne", "custom"],
+        "l_freq": [6, 8, 10],
+        "h_freq": [12, 20, 30]
+    },
+    "csp": {
+        "kernel": ["mne", "custom"],
+        "n_components": [1, 2, 4]
+    },
+    "lda": {
+        "solver": ["svd", "lsqr", "eigen"]
+    },
+    "mean_power": {
+        "log": [True, False]
+    }
+}
+
 
 class ExperimentSet:
-    param_grid = {
-        "dataset_type": ["none-rest", "arm-foot", "right-left"],
-        "classifier": ["svm", "lda"],
-        "preprocessor": [
-            "mne_filter;csp",
-            "csp"
-        ]
-    }
-
-    conditional_param_grid = {
-        "svm": {
-            "kernel": ["linear", "rbf", "sigmoid"]
-        },
-        "mne_filter": {
-            "l_freq": [6, 10],
-            "h_freq": [20, 30]
-        },
-        "csp": {
-            "log": [True, False],
-            "n_components": [2, 4, 6]
-        },
-        "lda": {
-            "solver": ["svd", "lsqr", "eigen"]
-        }
-    }
-
     def __init__(self, description="", hypothesis="", cv_splits=CV_SPLITS, **kwargs):
         self.params = dict(kwargs)
         self.init_time = datetime.datetime.now()
@@ -54,15 +62,20 @@ class ExperimentSet:
 
         self.cv_splits = cv_splits
 
+        self.relevant_keys = []
+
         self.create_experiment_params()
 
     def filename(self, prefix, suffix):
         return "{}_{}.{}".format(prefix, datestamp_str(self.init_time, file=True), suffix)
 
+    # <--- EXPERIMENT GENERATION --->
+
     def create_experiment_params(self):
-        for key in self.param_grid.keys():
+        for key in param_grid.keys():
             if key not in self.params:
-                self.params[key] = self.param_grid[key]
+                self.params[key] = param_grid[key]
+                self.relevant_keys.append(key)
 
         exp_params_list = self.recurse_flatten(self.params)
 
@@ -70,7 +83,7 @@ class ExperimentSet:
             pipeline_items = params["preprocessor"].split(";")
             pipeline_items.append(params["classifier"])
 
-            for key, val in self.conditional_param_grid.items():
+            for key, val in conditional_param_grid.items():
                 key = key
                 if key in pipeline_items:
                     if isinstance(val, dict):
@@ -79,8 +92,10 @@ class ExperimentSet:
                                 if val_key in self.params[key]:
                                     params[key][val_key] = self.params[key][val_key]
                                 else:
+                                    self.relevant_keys.append("{}__{}".format(key, val_key))
                                     params[key][val_key] = val_val
                             else:
+                                self.relevant_keys.append(key)
                                 params[key] = val
                     else:
                         params[key] = self.params[key] if key in self.params else val
@@ -90,11 +105,14 @@ class ExperimentSet:
 
         exp_params_list = self.recurse_flatten(exp_params_list)
 
+        # The following two lines remove duplicate configurations
         set_of_jsons = {json.dumps(d, sort_keys=True) for d in exp_params_list}
         exp_params_list = [json.loads(t) for t in set_of_jsons]
 
-        print("")
-        print(pandas.DataFrame(exp_params_list))
+        Print.start("")
+        print(pandas.DataFrame([flatten_dict(e) for e in exp_params_list]))
+        print("\n\n")
+
         self.exp_params_list = exp_params_list
 
     def recurse_flatten(self, params):
@@ -128,6 +146,8 @@ class ExperimentSet:
 
         return res
 
+    # <--- EXPERIMENT EXECUTION --->
+
     def run_experiments(self):
         pb = ProgressBar.include("exp_set", iterable=self.exp_params_list)
 
@@ -138,27 +158,19 @@ class ExperimentSet:
             exp.run()
             self.experiments.append(exp)
 
-        for exp in self.experiments:
-            print("\n\n")
-            Print.success("Experiment")
-            print(pandas.DataFrame([exp.raw_params]))
-            print("")
-            Print.point("Results\n")
-            print("Accuracy: {}\n".format(round(exp.results["accuracy"], 2)))
-            print(pandas.DataFrame(exp.results["confusion_matrix"]))
-            print("\n")
-
         pb.close()
 
-        self.generate_report2()
+        self.generate_report()
+        # notify("ExperimentSet finished running", "")
 
-    def generate_report2(self):
+    def generate_report(self):
         create_path_if_not_existing(Path.exp_logs)
 
         fn = self.filename("exp_set_results", "md")
         fp = "/".join([Path.exp_logs, fn])
 
         with open(fp, 'w+') as file:
+            Print.point("Writing File Header")
             res = "# Experiment Set\n"
             res += "{}\n".format(datestamp_str(self.init_time))
             res += "\n\n"
@@ -176,12 +188,18 @@ class ExperimentSet:
             experiments = sorted(self.experiments, key=lambda x: x.results["accuracy"], reverse=True)
 
             for exp in experiments:
+                flat_params = flatten_dict(exp.raw_params)
+
                 res += "---\n\n"
                 res += "### Accuracy: {}\n".format(round(exp.results["accuracy"], 2))
 
-                print(exp.raw_params)
-                print(flatten(exp.raw_params))
-                params_df = pandas.DataFrame([flatten(exp.raw_params)])
+                res += "### Relevant parameters\n"
+                relevant_params = {key: flat_params[key] for key in self.relevant_keys}
+                params_df = pandas.DataFrame([relevant_params])
+                res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+
+                res += "### All parameters\n"
+                params_df = pandas.DataFrame([flat_params])
                 res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
 
                 res += "#### Confusion Matrix\n"
@@ -191,62 +209,34 @@ class ExperimentSet:
 
             file.write(res)
 
-    def generate_report(self):
-        create_path_if_not_existing(Path.exp_logs)
 
-        fn = self.filename("exp_set_results", "md")
-        fp = "/".join([Path.exp_logs, fn])
-
-        with open(fp, 'w+') as file:
-            res = "# Experiment Set\n"
-            res += "{}\n".format(datestamp_str(self.init_time))
-            res += "\n\n"
-            if self.description:
-                res += "#### Description\n"
-                res += self.description + "\n"
-
-            if self.hypothesis:
-                res += "#### Hypothesis\n"
-                res += self.hypothesis + "\n"
-
-            res += "\n\n"
-            res += "### Performance by configuration\n\n"
-
-            results = [exp.results for exp in self.experiments]
-
-            df_perf1 = pandas.DataFrame(results, copy=True)
-            df_perf1 = df_perf1.drop("confusion_matrix", axis=1)
-            # df_perf1["Config Summary"] = [" - ".join(exp_config.summary()) for exp_config in exp_configs]
-            df_perf1.sort_values(by=["accuracy"], axis=0, ascending=False, inplace=True)
-            res += tabulate(df_perf1, tablefmt="pipe", headers="keys", showindex=False) + "\n"
-
-            res += "<!---\nResults in LaTeX\n"
-
-            res += tabulate(df_perf1, tablefmt="latex", headers="keys", showindex=False) + "\n"
-            res += "--->\n"
-
-            file.write(res)
+# <--- RUN CODE --->
 
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": "arm-foot",
-        # "classifier": "svm",
-        "preprocessor": "mne_filter;csp",
+        "dataset_type": DSType.NONE_REST.value,
+        "classifier": "svm",
+        "preprocessor": "filter;csp;mean_power",
         "svm": {
-            # "kernel": "linear"
+            "kernel": "linear"
         },
-        "mne_filter": {
+        "filter": {
+            "kernel": "mne",
             "l_freq": 6,
-            # "h_freq": 30
+            "h_freq": 30
         },
         "csp": {
-            # "log": True,
+            # "kernel": "mne",
             # "n_components": 2
         },
+        "mean_power": {
+            # "log": True,
+        },
         "lda": {
-            # "solver": "svd"
+            "solver": "svd"
         }
+
     }
 
     exp_set = ExperimentSet(cv_splits=3, **params)

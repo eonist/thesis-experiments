@@ -1,15 +1,6 @@
 import numpy as np
 import pyhht
-import requests
-from sklearn import svm
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import cross_val_score
-from sklearn.pipeline import make_pipeline
-
-from config import URL
-from models.session import Session
-from transformers.statistical_features import StatisticalFeatures
-from utils.prints import print_time
 
 
 class EMD(BaseEstimator, TransformerMixin):
@@ -40,36 +31,3 @@ class EMD(BaseEstimator, TransformerMixin):
 
     def fit(self, *_):
         return self
-
-
-if __name__ == '__main__':
-    def create_dataset():
-        r = requests.get(URL.sessions)
-
-        json_data = r.json()
-
-        dataset = Session(**json_data[0]).dataset()
-
-        for i in range(len(json_data)):
-            if i > 0:
-                session = Session(**json_data[i])
-                dataset = dataset + session.dataset()
-
-        return dataset
-
-
-    ds = create_dataset()
-    pipeline = make_pipeline(
-        EMD(1),
-        StatisticalFeatures(features="__all__"),
-        svm.SVC(kernel='linear')
-    )
-
-
-    @print_time
-    def cross_val(clf, X, Y):
-        score = cross_val_score(clf, X, Y, cv=5, scoring="accuracy")
-        print(score)
-
-
-    cross_val(pipeline, ds.X, ds.Y)

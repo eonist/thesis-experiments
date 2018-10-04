@@ -49,30 +49,36 @@ def np_append(arr, value):
         return np.vstack([arr, value])
 
 
-def notify(title, text):
-    os.system("""
-              osascript -e 'display notification "{}" with title "{}"'
-              """.format(text, title))
+def notify(title="Notification", text=""):
+    os.system("""osascript -e 'display notification "{}" with title "{}"'""".format(text, title))
 
 
-def flatten(d, parent_key='', sep='__'):
+def flatten_dict(d, parent_key='', sep='__'):
     items = []
     for k, v in d.items():
         new_key = parent_key + sep + k if parent_key else k
         if isinstance(v, collections.MutableMapping):
-            items.extend(flatten(v, new_key, sep=sep).items())
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
         else:
             items.append((new_key, v))
     return dict(items)
 
 
 def dict_set(data, multilevel_key, value, index=0):
-    """ Use semicolons (;) in key to access deeper in the dict """
+    """ Use double underscores (__) in key to access deeper in the dict """
 
-    keys = multilevel_key.split(";")
+    keys = multilevel_key.split("__")
 
     if index < len(keys) - 1:
         next_data = data[keys[index]]
         return dict_set(next_data, multilevel_key, value, index=index + 1)
     else:
         data[keys[index]] = value
+
+
+def dict_get(data, multilevel_key, index=0):
+    keys = multilevel_key.split("__")
+    if index < len(keys):
+        return dict_get(data[keys[index]], multilevel_key, index=index + 1)
+    else:
+        return data

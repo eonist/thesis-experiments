@@ -2,7 +2,6 @@ import binascii
 import json
 
 import numpy as np
-from mne.decoding import CSP
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import confusion_matrix
@@ -10,14 +9,18 @@ from sklearn.pipeline import Pipeline
 
 from config import CV_SPLITS, TEST_SIZE
 from models.session import Session
-from transformers.mne_filter import MneFilter
+from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
+from utils.prints import Print
 from utils.progress_bar import ProgressBar
 
 pipeline_classes = {
     "svm": svm.SVC,
     "lda": LinearDiscriminantAnalysis,
     "csp": CSP,
-    "mne_filter": MneFilter
+    "filter": Filter,
+    "emd": EMD,
+    "stats": StatisticalFeatures,
+    "mean_power": MeanPower
 }
 
 
@@ -25,11 +28,11 @@ class Experiment:
     def __init__(self, pipeline_items, **kwargs):
         self.cv_splits = CV_SPLITS
         self.test_size = TEST_SIZE
-        self.raw_params = kwargs.get('raw_params', None)
-        self.dataset_type = kwargs.get('dataset_type', "arm-foot")
+        self.raw_params = kwargs.get('raw_params', dict())
+        self.dataset_type = kwargs.get('dataset_type', "arm_foot")
 
         self.pipeline_items = pipeline_items
-        self.pipeline_params = kwargs.get('pipeline_params', dict())
+        Print.data(pipeline_items)
 
         self.pipeline = self.create_pipeline()
 
@@ -60,7 +63,7 @@ class Experiment:
         pipeline_input = []
 
         for item in self.pipeline_items:
-            params = self.pipeline_params[item] if item in self.pipeline_params else {}
+            params = self.raw_params[item] if item in self.raw_params else {}
             initializer = pipeline_classes[item]
             pipeline_input.append((item, initializer(**params)))
 
@@ -96,6 +99,6 @@ class Experiment:
 
 
 if __name__ == '__main__':
-    exp = Experiment(["mne_filter", "csp", "svm"], pipeline_params={"svm": {"kernel": "linear"}})
+    exp = Experiment(["filter", "csp", "svm"], raw_params={"svm": {"kernel": "linear"}})
 
     exp.run()

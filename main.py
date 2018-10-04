@@ -4,11 +4,11 @@ from sklearn.model_selection import cross_val_score, ShuffleSplit
 
 from models.session import Session
 from transformers.csp import CSP
-from transformers.mne_filter import MneFilter
+from transformers.filter import Filter
 
 
 def process_dataset(X, y):
-    filter = MneFilter(l_freq=7, h_freq=30)
+    filter = Filter(l_freq=7, h_freq=30)
 
     X = filter.transform(X)
 
@@ -33,7 +33,7 @@ def main():
     ds = Session.full_dataset()
     print(ds.distribution())
     # ds = Session.combined_dataset([40])
-    y = ds.binary_y("none-rest")
+    y = ds.binary_y("none_rest")
     X = process_dataset(ds.X, y)
     print(np.shape(X))
 

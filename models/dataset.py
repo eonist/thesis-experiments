@@ -62,23 +62,23 @@ class DataSet:
         return dict(zip(unique, counts))
 
     def binary_dataset(self, type):
-        if type == "none-rest":
+        if type == "none_rest":
             ds = self
             ds.y = np.array([0 if val == 0 else 1 for val in ds.y])
             ds.label_map = {"none": 0, "event": 1}
-        elif type == "arm-foot":
+        elif type == "arm_foot":
             ds = self.reduced_dataset([1, 2, 3, 4])
             ds.y = np.array([0 if val in [1, 2] else 1 for val in ds.y])
             ds.label_map = {"arm": 0, "foot": 1}
-        elif type == "right-left":
+        elif type == "left_right":
             ds = self.reduced_dataset([1, 2, 3, 4])
             ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
             ds.label_map = {"left": 0, "right": 1}
-        elif type == "right-left-arm":
+        elif type == "arm_left_right":
             ds = self.reduced_dataset([1, 2])
             ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
             ds.label_map = {"arm/left": 0, "arm/right": 1}
-        elif type == "right-left-foot":
+        elif type == "foot_left_right":
             ds = self.reduced_dataset([3, 4])
             ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
             ds.label_map = {"foot/left": 0, "foot/right": 1}

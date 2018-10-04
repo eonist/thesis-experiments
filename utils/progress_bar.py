@@ -2,6 +2,8 @@ import enum
 
 from tqdm import tqdm
 
+from config import SHOW_PROGRESS_BAR
+
 
 class State(enum.Enum):
     READY = 0
@@ -34,6 +36,9 @@ class ProgressBar:
     def include(cls, pb_id, iterable=None, total=None):
         pb = cls.get_instance()
 
+        if not SHOW_PROGRESS_BAR:
+            return pb
+
         if pb.state == State.FINISHED:
             pb.reset()
 
@@ -48,6 +53,9 @@ class ProgressBar:
         return pb
 
     def increment(self, pb_id=None):
+        if not SHOW_PROGRESS_BAR:
+            return
+
         if pb_id is not None and pb_id == self.pb_ids[-1]:
             if self.state == State.READY:
                 self.tqdm = tqdm()
