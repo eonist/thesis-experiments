@@ -1,8 +1,6 @@
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from utils.prints import Print
-
 
 class MeanPower(BaseEstimator, TransformerMixin):
     def __init__(self, log=True):
@@ -19,12 +17,6 @@ class MeanPower(BaseEstimator, TransformerMixin):
         else:
             X -= self.mean
             X /= self.std
-
-        print("")
-        Print.point("MeanPower")
-        Print.data(np.shape(X))
-        Print.data(self.mean)
-        print("")
 
         return X
 

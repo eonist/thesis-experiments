@@ -5,7 +5,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 class StatisticalFeatures(BaseEstimator, TransformerMixin):
     keywords = {
-        "__all__": ["mean", "var", "std", "kurt", "skew", "max", "min", "median"]
+        "__all__": ["mean", "var", "std", "kurt", "skew", "max", "min", "median"],
+        "__fast__": ["mean", "var", "std"]
     }
 
     feature_map = {

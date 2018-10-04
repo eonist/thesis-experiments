@@ -1,10 +1,13 @@
+import warnings
+
 import numpy as np
 import scipy.linalg as la
 from mne.decoding import CSP as MneCSP
 from numpy.linalg import multi_dot as dot
 
 from utils.exceptions import InvalidKernel
-from utils.prints import Print
+
+warnings.filterwarnings('ignore')
 
 
 class CSP(MneCSP):
@@ -15,8 +18,6 @@ class CSP(MneCSP):
         self.kernel = kernel
         self.filters_ = None
 
-        Print.data(self.n_components)
-
     def transform(self, X, *args):
         if self.kernel == "mne":
             X = super(CSP, self).transform(X)
@@ -24,12 +25,6 @@ class CSP(MneCSP):
             X = self.custom_transform(X, *args)
         else:
             raise InvalidKernel(self.kernel)
-
-        print("")
-        Print.point("CSP")
-        Print.data(self.kernel)
-        Print.data(self.n_components)
-        Print.data(np.shape(X))
 
         return X
 
@@ -40,8 +35,6 @@ class CSP(MneCSP):
             self.custom_fit(X, y)
         else:
             raise InvalidKernel(self.kernel)
-
-        Print.data(np.shape(self.filters_))
 
         return self
 

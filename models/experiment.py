@@ -1,21 +1,30 @@
 import binascii
 import json
+import time
 
 import numpy as np
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
 from sklearn.metrics import confusion_matrix
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
+from sklearn.tree import DecisionTreeClassifier
 
 from config import CV_SPLITS, TEST_SIZE
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
-from utils.prints import Print
 from utils.progress_bar import ProgressBar
 
 pipeline_classes = {
     "svm": svm.SVC,
     "lda": LinearDiscriminantAnalysis,
+    "random_forest": RandomForestClassifier,
+    "bagging": BaggingClassifier,
+    "tree": DecisionTreeClassifier,
+    "knn": KNeighborsClassifier,
+    "gaussian": GaussianNB,
     "csp": CSP,
     "filter": Filter,
     "emd": EMD,
@@ -32,7 +41,6 @@ class Experiment:
         self.dataset_type = kwargs.get('dataset_type', "arm_foot")
 
         self.pipeline_items = pipeline_items
-        Print.data(pipeline_items)
 
         self.pipeline = self.create_pipeline()
 
@@ -73,6 +81,8 @@ class Experiment:
         accuracies = []
         c_matrix = np.zeros([2, 2])
 
+        start_time = time.time()
+
         pb_id = "exp_run"
         pb = ProgressBar.include(pb_id, total=self.cv_splits)
 
@@ -87,14 +97,15 @@ class Experiment:
             accuracy = self.pipeline.score(ds_test.X, ds_test.y)
             predictions = self.pipeline.predict(ds_test.X)
 
-            c_matrix = confusion_matrix(ds_test.y, predictions)
+            c_matrix += confusion_matrix(ds_test.y, predictions)
 
-            accuracies.append(accuracy)
-            c_matrix += c_matrix
+            accuracies.append(round(accuracy, 3))
 
             pb.increment(pb_id)
 
-        self.results["accuracy"] = np.mean(accuracies)
+        self.results["avg_time"] = round((time.time() - start_time) / self.cv_splits, 3)
+        self.results["accuracy"] = round(float(np.mean(accuracies)), 2)
+        self.results["accuracies"] = accuracies
         self.results["confusion_matrix"] = c_matrix
 
 

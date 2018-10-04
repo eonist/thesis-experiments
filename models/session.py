@@ -6,8 +6,6 @@ import requests
 
 from config import URL, label_map, WINDOW_LENGTH, Path
 from models.dataset import DataSet
-from utils.progress_bar import ProgressBar
-from utils.utils import func_name
 
 
 class Session:
@@ -125,14 +123,14 @@ class Session:
 
     @classmethod
     def combined_dataset(cls, ids):
-        pb_id = func_name()
-        pb = ProgressBar.include(pb_id, iterable=ids)
+        # pb_id = func_name()
+        # pb = ProgressBar.include(pb_id, iterable=ids)
 
         dataset = DataSet.empty()
         for id in ids:
             dataset = dataset + cls.from_api(id).dataset()
 
-            pb.increment(pb_id)
+            # pb.increment(pb_id)
 
         return dataset
 

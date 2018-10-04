@@ -45,12 +45,6 @@ class Filter(BaseEstimator, TransformerMixin):
 
         X = np.array([data for data, times in [raw[:] for raw in raws]])
 
-        print("\n\n")
-        Print.start("PIPELINE START")
-        print("")
-        Print.point("Filter")
-        Print.data(np.shape(X))
-
         return X
 
     # <--- CUSTOM FILTER METHODS --->

@@ -10,7 +10,6 @@ class EMD(BaseEstimator, TransformerMixin):
     def transform(self, X, *args):
         n_samples, n_signals, window_length = np.shape(X)
         X_t = np.empty([n_samples, n_signals * self.n_imfs, window_length])
-
         for i, sample in enumerate(X):
             X_t[i] = self._transform_sample(sample)
 

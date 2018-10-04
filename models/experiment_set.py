@@ -7,7 +7,6 @@ from tabulate import tabulate
 
 from config import Path, CV_SPLITS
 from models.experiment import Experiment
-from utils.enums import DSType
 from utils.prints import Print
 from utils.progress_bar import ProgressBar
 from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
@@ -20,11 +19,12 @@ pandas.set_option('display.width', 1000)
 
 param_grid = {
     "dataset_type": ["none_rest", "arm_foot", "left_right"],
-    "classifier": ["svm", "lda"],
+    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
         "csp;mean_power",
-        "emd;stats"
+        "emd;stats",
+        "filter;csp;stats"
     ]
 }
 
@@ -34,7 +34,7 @@ conditional_param_grid = {
     },
     "filter": {
         "kernel": ["mne", "custom"],
-        "l_freq": [6, 8, 10],
+        "l_freq": [1, 7, 10],
         "h_freq": [12, 20, 30]
     },
     "csp": {
@@ -46,6 +46,12 @@ conditional_param_grid = {
     },
     "mean_power": {
         "log": [True, False]
+    },
+    "emd": {
+        "n_imfs": [1, 2, 4]
+    },
+    "stats": {
+        "features": ["__all__", "__fast__"]
     }
 }
 
@@ -191,10 +197,13 @@ class ExperimentSet:
                 flat_params = flatten_dict(exp.raw_params)
 
                 res += "---\n\n"
-                res += "### Accuracy: {}\n".format(round(exp.results["accuracy"], 2))
+                res += "### Accuracy: {}\n".format(exp.results["accuracy"])
+                res += "{}\n".format(exp.results["accuracies"])
+
+                res += "#### Average Time: {}\n".format(exp.results["avg_time"])
 
                 res += "### Relevant parameters\n"
-                relevant_params = {key: flat_params[key] for key in self.relevant_keys}
+                relevant_params = {key: flat_params[key] for key in self.relevant_keys if key in flat_params}
                 params_df = pandas.DataFrame([relevant_params])
                 res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
 
@@ -215,11 +224,14 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": DSType.NONE_REST.value,
-        "classifier": "svm",
-        "preprocessor": "filter;csp;mean_power",
+        # "dataset_type": "arm_foot",
+        # "classifier": "lda",
+        # "preprocessor": "emd;csp;mean_power",
         "svm": {
             "kernel": "linear"
+        },
+        "lda": {
+            "solver": "lsqr"
         },
         "filter": {
             "kernel": "mne",
@@ -227,14 +239,17 @@ if __name__ == '__main__':
             "h_freq": 30
         },
         "csp": {
-            # "kernel": "mne",
-            # "n_components": 2
+            "kernel": "custom",
+            "n_components": 4
         },
         "mean_power": {
-            # "log": True,
+            "log": True,
         },
-        "lda": {
-            "solver": "svd"
+        "emd": {
+            "n_imfs": 1
+        },
+        "stats": {
+            "features": "__fast__"
         }
 
     }
