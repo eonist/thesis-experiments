@@ -6,6 +6,7 @@ import numpy as np
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
+from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
@@ -15,7 +16,10 @@ from sklearn.tree import DecisionTreeClassifier
 from config import CV_SPLITS, TEST_SIZE
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
+from utils.enums import DSType
+from utils.prints import Print
 from utils.progress_bar import ProgressBar
+from utils.utils import avg_dict
 
 pipeline_classes = {
     "svm": svm.SVC,
@@ -38,7 +42,7 @@ class Experiment:
         self.cv_splits = CV_SPLITS
         self.test_size = TEST_SIZE
         self.raw_params = kwargs.get('raw_params', dict())
-        self.dataset_type = kwargs.get('dataset_type', "arm_foot")
+        self.dataset_type = DSType(kwargs.get('dataset_type', "arm_foot"))
 
         self.pipeline_items = pipeline_items
 
@@ -79,34 +83,71 @@ class Experiment:
 
     def run(self):
         accuracies = []
+        kappas = []
         c_matrix = np.zeros([2, 2])
+        reports = []
 
         start_time = time.time()
+        fit_time = 0
+        predict_time = 0
 
         pb_id = "exp_run"
         pb = ProgressBar.include(pb_id, total=self.cv_splits)
+        try:
+            for i in range(self.cv_splits):
+                start_ds_time = time.time()
+                ds = Session.full_dataset()
+                ds = ds.binary_dataset(self.dataset_type)
+                ds.shuffle()
+                ds_train, ds_test = ds.split(include_val=False)
 
-        for i in range(self.cv_splits):
-            ds = Session.full_dataset()
-            ds = ds.binary_dataset(self.dataset_type)
-            ds.shuffle()
-            ds_train, ds_test = ds.split(include_val=False)
+                Print.point("DS time: {}s".format(time.time() - start_ds_time))
 
-            self.pipeline.fit(ds_train.X, ds_train.y)
+                start_fit_time = time.time()
+                self.pipeline.fit(ds_train.X, ds_train.y)
+                fit_time += time.time() - start_fit_time
 
-            accuracy = self.pipeline.score(ds_test.X, ds_test.y)
-            predictions = self.pipeline.predict(ds_test.X)
+                start_predict_time = time.time()
+                predictions = self.pipeline.predict(ds_test.X)
+                predict_time += time.time() - start_predict_time
 
-            c_matrix += confusion_matrix(ds_test.y, predictions)
+                accuracy = self.pipeline.score(ds_test.X, ds_test.y)
 
-            accuracies.append(round(accuracy, 3))
+                kappas.append(self.mod_kappa(ds_train.y, accuracy))
+                c_matrix += confusion_matrix(ds_test.y, predictions)
 
-            pb.increment(pb_id)
+                accuracies.append(accuracy)
 
-        self.results["avg_time"] = round((time.time() - start_time) / self.cv_splits, 3)
-        self.results["accuracy"] = round(float(np.mean(accuracies)), 2)
+                reports.append(classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
+                                                     target_names=self.dataset_type.labels))
+
+                pb.increment(pb_id)
+
+        except Exception as e:
+            print("")
+            Print.warning("Skipping experiment: {}".format(e))
+            self.results["success"] = False
+            pb.increment(count=self.cv_splits)
+            return
+
+        self.results["time"] = {
+            "exp": (time.time() - start_time) / self.cv_splits,
+            "fit": fit_time / self.cv_splits,
+            "predict": predict_time / self.cv_splits
+        }
+        self.results["accuracy"] = np.mean(accuracies)
         self.results["accuracies"] = accuracies
+        self.results["kappa"] = np.mean(kappas)
         self.results["confusion_matrix"] = c_matrix
+        self.results["avg_report"] = avg_dict(reports)
+        self.results["cv_splits"] = self.cv_splits
+        self.results["success"] = True
+
+    def mod_kappa(self, y_train, accuracy):
+        unique, counts = np.unique(y_train, return_counts=True)
+        p_e = counts[0] / len(y_train)
+
+        return (accuracy - p_e) / (1 - p_e)
 
 
 if __name__ == '__main__':

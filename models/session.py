@@ -4,7 +4,7 @@ import os
 import numpy as np
 import requests
 
-from config import URL, label_map, WINDOW_LENGTH, Path
+from config import URL, LABEL_MAP, WINDOW_LENGTH, Path
 from models.dataset import DataSet
 
 
@@ -89,7 +89,7 @@ class Session:
             m[i, n_channels] = data["timestamp"] - time_zero
 
             label_name = data["label"]["name"].strip()
-            m[i, n_channels + 1] = label_map[label_name]
+            m[i, n_channels + 1] = LABEL_MAP[label_name]
 
         return m
 

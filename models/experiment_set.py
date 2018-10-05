@@ -2,18 +2,20 @@ import copy
 import datetime
 import json
 
-import pandas
+import numpy as np
+import pandas as pd
 from tabulate import tabulate
 
-from config import Path, CV_SPLITS
+from config import Path, CV_SPLITS, DECIMALS
 from models.experiment import Experiment
+from utils.enums import DSType
 from utils.prints import Print
 from utils.progress_bar import ProgressBar
 from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
 
-pandas.set_option('display.max_rows', 500)
-pandas.set_option('display.max_columns', 500)
-pandas.set_option('display.width', 1000)
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.width', 1000)
 
 # <--- PARAMETER GRIDS --->
 
@@ -22,9 +24,12 @@ param_grid = {
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
+        "filter;csp;stats",
         "csp;mean_power",
         "emd;stats",
-        "filter;csp;stats"
+        "emd;mean_power",
+        "emd;csp;stats",
+        "emd;csp;mean_power"
     ]
 }
 
@@ -35,7 +40,7 @@ conditional_param_grid = {
     "filter": {
         "kernel": ["mne", "custom"],
         "l_freq": [1, 7, 10],
-        "h_freq": [12, 20, 30]
+        "h_freq": [12, 20, 30, None]
     },
     "csp": {
         "kernel": ["mne", "custom"],
@@ -116,7 +121,7 @@ class ExperimentSet:
         exp_params_list = [json.loads(t) for t in set_of_jsons]
 
         Print.start("")
-        print(pandas.DataFrame([flatten_dict(e) for e in exp_params_list]))
+        print(pd.DataFrame([flatten_dict(e) for e in exp_params_list]))
         print("\n\n")
 
         self.exp_params_list = exp_params_list
@@ -170,13 +175,14 @@ class ExperimentSet:
         # notify("ExperimentSet finished running", "")
 
     def generate_report(self):
+        print("\n")
+        Print.success("Generating Report")
         create_path_if_not_existing(Path.exp_logs)
 
         fn = self.filename("exp_set_results", "md")
         fp = "/".join([Path.exp_logs, fn])
 
         with open(fp, 'w+') as file:
-            Print.point("Writing File Header")
             res = "# Experiment Set\n"
             res += "{}\n".format(datestamp_str(self.init_time))
             res += "\n\n"
@@ -191,30 +197,48 @@ class ExperimentSet:
             res += "\n\n"
             res += "## Performance by configuration\n\n"
 
-            experiments = sorted(self.experiments, key=lambda x: x.results["accuracy"], reverse=True)
+            experiments = [exp for exp in self.experiments if exp.results["success"]]
+            experiments = sorted(experiments, key=lambda x: x.results["kappa"], reverse=True)
 
             for exp in experiments:
                 flat_params = flatten_dict(exp.raw_params)
 
                 res += "---\n\n"
-                res += "### Accuracy: {}\n".format(exp.results["accuracy"])
-                res += "{}\n".format(exp.results["accuracies"])
+                res += "### Kappa: {}\n".format(np.round(exp.results["kappa"], DECIMALS))
 
-                res += "#### Average Time: {}\n".format(exp.results["avg_time"])
+                res += "* **Dataset type:** {}\n".format(exp.dataset_type)
+                res += "* **Accuracy:** {}\n".format(np.round(exp.results["accuracy"], DECIMALS))
+                res += "* **Average Time:** {}\n".format(np.round(exp.results["time"]["exp"], DECIMALS))
+                res += "\n"
 
-                res += "### Relevant parameters\n"
+                res += "### Config\n"
+                res += "**Relevant Parameters**\n\n"
                 relevant_params = {key: flat_params[key] for key in self.relevant_keys if key in flat_params}
-                params_df = pandas.DataFrame([relevant_params])
+                params_df = pd.DataFrame([relevant_params])
                 res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
 
-                res += "### All parameters\n"
-                params_df = pandas.DataFrame([flat_params])
-                res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+                res += "**All Parameters**\n\n"
+                params_df = pd.DataFrame([flat_params])
+                res += tabulate(params_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=False) + "\n"
 
-                res += "#### Confusion Matrix\n"
+                res += "### Details\n"
 
-                c_matrix_df = pandas.DataFrame(exp.results["confusion_matrix"])
-                res += tabulate(c_matrix_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+                res += "**Confusion Matrix**\n\n"
+                c_matrix_df = pd.DataFrame(exp.results["confusion_matrix"],
+                                           columns=["Pred: {}".format(l) for l in exp.dataset_type.labels],
+                                           index=["__True: {}__".format(l) for l in exp.dataset_type.labels])
+                res += tabulate(c_matrix_df, tablefmt="pipe", headers="keys", showindex=True) + "\n"
+
+                res += "**Report**\n\n"
+                report = exp.results["avg_report"]
+                report_df = pd.DataFrame.from_dict(report)
+                report_key = list(report.keys())[0]
+                index = ["__{}__".format(key) for key in report[report_key].keys()]
+                res += tabulate(report_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=index) + "\n"
+
+                res += "**Time**\n\n"
+                time_df = pd.DataFrame([exp.results["time"]])
+                res += tabulate(time_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=False) + "\n"
 
             file.write(res)
 
@@ -224,9 +248,9 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        # "dataset_type": "arm_foot",
-        # "classifier": "lda",
-        # "preprocessor": "emd;csp;mean_power",
+        "dataset_type": str(DSType.FOOT_LEFT_RIGHT),
+        "classifier": "lda",
+        "preprocessor": "filter;csp;mean_power",
         "svm": {
             "kernel": "linear"
         },
@@ -235,11 +259,11 @@ if __name__ == '__main__':
         },
         "filter": {
             "kernel": "mne",
-            "l_freq": 6,
-            "h_freq": 30
+            # "l_freq": 7,
+            # "h_freq": 12
         },
         "csp": {
-            "kernel": "custom",
+            "kernel": "mne",
             "n_components": 4
         },
         "mean_power": {
@@ -249,9 +273,8 @@ if __name__ == '__main__':
             "n_imfs": 1
         },
         "stats": {
-            "features": "__fast__"
+            "features": "__all__"
         }
-
     }
 
     exp_set = ExperimentSet(cv_splits=3, **params)

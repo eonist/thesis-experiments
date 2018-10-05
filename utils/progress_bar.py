@@ -52,7 +52,7 @@ class ProgressBar:
 
         return pb
 
-    def increment(self, pb_id=None):
+    def increment(self, pb_id=None, count=1):
         if not SHOW_PROGRESS_BAR:
             return
 
@@ -65,7 +65,7 @@ class ProgressBar:
 
             if self.state == State.RUNNING:
                 self.progress += 1
-                self.tqdm.update(1)
+                self.tqdm.update(count)
 
                 if self.progress >= self.total:
                     self.state = State.FINISHED

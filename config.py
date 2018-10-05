@@ -7,6 +7,7 @@ SHOW_PROGRESS_BAR = True
 
 CV_SPLITS = 3
 TEST_SIZE = 0.2
+DECIMALS = 3
 
 # <--- FORMAT --->
 
@@ -20,7 +21,7 @@ import os
 # None is 0
 # Arm events are 1 and 2, foot events are 3 and 4
 # Right events are odd, left events are even
-label_map = {
+LABEL_MAP = {
     "None": 0,
     "arm/right": 1,
     "arm/left": 2,
@@ -28,7 +29,7 @@ label_map = {
     "foot/left": 4
 }
 
-inv_label_map = {v: k for k, v in label_map.items()}
+INV_LABEL_MAP = {v: k for k, v in LABEL_MAP.items()}
 
 WINDOW_LENGTH = 250
 

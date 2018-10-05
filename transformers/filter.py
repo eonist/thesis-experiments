@@ -3,8 +3,6 @@ import numpy as np
 from scipy.signal import butter, lfilter
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from utils.prints import Print
-
 
 class Filter(BaseEstimator, TransformerMixin):
     name = "filter"
@@ -20,16 +18,12 @@ class Filter(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, *args):
-        try:
-            if self.kernel == "mne":
-                return self.mne_transform(X, *args)
-            elif self.kernel == "custom":
-                return self.custom_transform(X, *args)
-            else:
-                raise Exception("Filter kernel \"{}\" not recognized".format(self.kernel))
-        except Exception as e:
-            print("filter")
-            Print.ex(e)
+        if self.kernel == "mne":
+            return self.mne_transform(X, *args)
+        elif self.kernel == "custom":
+            return self.custom_transform(X, *args)
+        else:
+            raise Exception("Filter kernel \"{}\" not recognized".format(self.kernel))
 
     # <--- MNE FILTER METHODS --->
 
@@ -44,7 +38,6 @@ class Filter(BaseEstimator, TransformerMixin):
         raws = [raw.filter(self.l_freq, self.h_freq, fir_design='firwin', skip_by_annotation='edge') for raw in raws]
 
         X = np.array([data for data, times in [raw[:] for raw in raws]])
-
         return X
 
     # <--- CUSTOM FILTER METHODS --->
