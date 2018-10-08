@@ -1,7 +1,8 @@
-requests==2.19.1
-numpy==1.15.1
 scipy==1.1.0
 Pygments==2.2.0
+requests==2.19.1
+numpy==1.15.1
+keras==2.2.4
 mne==0.16.2
 pandas==0.23.4
 pyhht==0.1.0

@@ -14,11 +14,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
 from config import CV_SPLITS, TEST_SIZE
+from models.neural_network import NeuralNetwork
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
 from utils.enums import DSType
 from utils.prints import Print
-from utils.progress_bar import ProgressBar
 from utils.utils import avg_dict
 
 pipeline_classes = {
@@ -29,6 +29,7 @@ pipeline_classes = {
     "tree": DecisionTreeClassifier,
     "knn": KNeighborsClassifier,
     "gaussian": GaussianNB,
+    "nn": NeuralNetwork,
     "csp": CSP,
     "filter": Filter,
     "emd": EMD,
@@ -45,8 +46,9 @@ class Experiment:
         self.dataset_type = DSType(kwargs.get('dataset_type', "arm_foot"))
 
         self.pipeline_items = pipeline_items
-
         self.pipeline = self.create_pipeline()
+
+        self.datasets = []
 
         self.results = {}
 
@@ -91,17 +93,19 @@ class Experiment:
         fit_time = 0
         predict_time = 0
 
-        pb_id = "exp_run"
-        pb = ProgressBar.include(pb_id, total=self.cv_splits)
         try:
-            for i in range(self.cv_splits):
-                start_ds_time = time.time()
-                ds = Session.full_dataset()
-                ds = ds.binary_dataset(self.dataset_type)
-                ds.shuffle()
-                ds_train, ds_test = ds.split(include_val=False)
+            if self.pipeline_items == ["emd", "stats", "svm"]:
+                raise Exception("emd;stats;svm should not be used together")
 
-                Print.point("DS time: {}s".format(time.time() - start_ds_time))
+            if not self.datasets:
+                for i in range(self.cv_splits):
+                    ds = Session.full_dataset()
+                    ds = ds.binary_dataset(self.dataset_type)
+                    ds.shuffle()
+                    self.datasets.append(ds)
+
+            for ds in self.datasets:
+                ds_train, ds_test = ds.split(include_val=False)
 
                 start_fit_time = time.time()
                 self.pipeline.fit(ds_train.X, ds_train.y)
@@ -121,13 +125,11 @@ class Experiment:
                 reports.append(classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
                                                      target_names=self.dataset_type.labels))
 
-                pb.increment(pb_id)
-
         except Exception as e:
             print("")
             Print.warning("Skipping experiment: {}".format(e))
+            Print.ex(e)
             self.results["success"] = False
-            pb.increment(count=self.cv_splits)
             return
 
         self.results["time"] = {

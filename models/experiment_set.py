@@ -5,12 +5,13 @@ import json
 import numpy as np
 import pandas as pd
 from tabulate import tabulate
+from tqdm import tqdm
 
 from config import Path, CV_SPLITS, DECIMALS
 from models.experiment import Experiment
+from models.session import Session
 from utils.enums import DSType
 from utils.prints import Print
-from utils.progress_bar import ProgressBar
 from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
 
 pd.set_option('display.max_rows', 500)
@@ -21,15 +22,13 @@ pd.set_option('display.width', 1000)
 
 param_grid = {
     "dataset_type": ["none_rest", "arm_foot", "left_right"],
-    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
+    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian", "nn"],
     "preprocessor": [
         "filter;csp;mean_power",
-        "filter;csp;stats",
         "csp;mean_power",
         "emd;stats",
-        "emd;mean_power",
-        "emd;csp;stats",
-        "emd;csp;mean_power"
+        "stats",
+        "mean_power"
     ]
 }
 
@@ -37,10 +36,14 @@ conditional_param_grid = {
     "svm": {
         "kernel": ["linear", "rbf", "sigmoid"]
     },
+    "nn": {
+        "epochs": [100, 200],
+        "verbose": 0
+    },
     "filter": {
         "kernel": ["mne", "custom"],
         "l_freq": [1, 7, 10],
-        "h_freq": [12, 20, 30, None]
+        "h_freq": [12, 30, None]
     },
     "csp": {
         "kernel": ["mne", "custom"],
@@ -160,16 +163,20 @@ class ExperimentSet:
     # <--- EXPERIMENT EXECUTION --->
 
     def run_experiments(self):
-        pb = ProgressBar.include("exp_set", iterable=self.exp_params_list)
 
-        for exp_params in self.exp_params_list:
+        datasets = []
+        for ds in tqdm(Session.full_dataset_gen(count=self.cv_splits), total=self.cv_splits, desc="Fetching DataSets"):
+            ds = ds.binary_dataset(self.params["dataset_type"])
+            ds.shuffle()
+            datasets.append(ds)
+
+        for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
             exp = Experiment.from_params(exp_params)
             exp.cv_splits = self.cv_splits
+            exp.datasets = datasets
 
             exp.run()
             self.experiments.append(exp)
-
-        pb.close()
 
         self.generate_report()
         # notify("ExperimentSet finished running", "")
@@ -209,7 +216,10 @@ class ExperimentSet:
                 res += "* **Dataset type:** {}\n".format(exp.dataset_type)
                 res += "* **Accuracy:** {}\n".format(np.round(exp.results["accuracy"], DECIMALS))
                 res += "* **Average Time:** {}\n".format(np.round(exp.results["time"]["exp"], DECIMALS))
+                res += "* **CV Splits:** {}\n".format(exp.results["cv_splits"])
                 res += "\n"
+
+                res += "{}\n".format(np.round(exp.results["accuracies"], DECIMALS))
 
                 res += "### Config\n"
                 res += "**Relevant Parameters**\n\n"
@@ -248,8 +258,8 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": str(DSType.FOOT_LEFT_RIGHT),
-        "classifier": "lda",
+        "dataset_type": str(DSType.NONE_REST),
+        "classifier": "nn",
         "preprocessor": "filter;csp;mean_power",
         "svm": {
             "kernel": "linear"
@@ -259,8 +269,8 @@ if __name__ == '__main__':
         },
         "filter": {
             "kernel": "mne",
-            # "l_freq": 7,
-            # "h_freq": 12
+            "l_freq": 7,
+            "h_freq": 30
         },
         "csp": {
             "kernel": "mne",
@@ -273,10 +283,10 @@ if __name__ == '__main__':
             "n_imfs": 1
         },
         "stats": {
-            "features": "__all__"
+            "features": "__fast__"
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=3, **params)
+    exp_set = ExperimentSet(cv_splits=10, **params)
 
     exp_set.run_experiments()

@@ -63,6 +63,9 @@ class DataSet:
         return dict(zip(unique, counts))
 
     def binary_dataset(self, type):
+        if isinstance(type, str):
+            type = DSType(type)
+
         if type == DSType.NONE_REST:
             ds = self
             ds.y = np.array([0 if val == 0 else 1 for val in ds.y])

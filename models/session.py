@@ -1,10 +1,11 @@
 import json
 import os
+import random
 
 import numpy as np
 import requests
 
-from config import URL, LABEL_MAP, WINDOW_LENGTH, Path
+from config import URL, LABEL_MAP, Path, WINDOW_LENGTH
 from models.dataset import DataSet
 
 
@@ -17,6 +18,7 @@ class Session:
         self.n_timeframes = None
         self.labels = None
         self.is_real_data = None
+        self.timeframes = None
 
     def __str__(self):
         return "{id} - {created}".format(id=self.id, created=self.created)
@@ -66,7 +68,7 @@ class Session:
 
         return [cls.from_json(d) for d in json_data]
 
-    def get_timeframes(self):
+    def fetch_timeframes(self):
         if self.is_cached():
             with open(self.cache_fp(), "r") as infile:
                 json_data = json.load(infile)
@@ -91,24 +93,25 @@ class Session:
             label_name = data["label"]["name"].strip()
             m[i, n_channels + 1] = LABEL_MAP[label_name]
 
+        self.timeframes = m
         return m
 
-    def window_gen(self, window_length):
-        m = self.get_timeframes()
-        i = np.random.randint(0, window_length / 2)
-        n_timeframes = np.shape(m)[0]
+    def window_gen(self, window_length=WINDOW_LENGTH):
+        if self.timeframes is None:
+            self.fetch_timeframes()
+
+        i = random.randint(0, window_length / 2)
+        n_timeframes = np.shape(self.timeframes)[0]
 
         while i < n_timeframes - window_length:
-            window = m[i:i + window_length, :]
-            # if window[0] == 0 and window[0] <= window[-1]:
+            window = self.timeframes[i:i + window_length, :]
             yield window
+            i += window_length + random.randint(-window_length / 2, window_length / 2)
 
-            i += window_length + np.random.randint(-window_length / 2, window_length / 2)
-
-    def dataset(self, window_length=WINDOW_LENGTH):
-        windows = list(self.window_gen(window_length))
+    def dataset(self, windows):
         n_samples = len(windows)
         n_channels = len(self.ch_names)
+        window_length = np.shape(windows)[1]
 
         X = np.empty([n_samples, n_channels, window_length])
         Y = np.empty([n_samples], dtype=np.int8)
@@ -123,14 +126,11 @@ class Session:
 
     @classmethod
     def combined_dataset(cls, ids):
-        # pb_id = func_name()
-        # pb = ProgressBar.include(pb_id, iterable=ids)
-
         dataset = DataSet.empty()
         for id in ids:
-            dataset = dataset + cls.from_api(id).dataset()
-
-            # pb.increment(pb_id)
+            session = cls.from_api(id)
+            windows = list(session.window_gen())
+            dataset = dataset + session.dataset(windows)
 
         return dataset
 
@@ -139,3 +139,16 @@ class Session:
         sessions = cls.fetch_all(only_real=True)
         ids = [s.id for s in sessions]
         return cls.combined_dataset(ids)
+
+    @classmethod
+    def full_dataset_gen(cls, count=1):
+        sessions = cls.fetch_all(only_real=True)
+        [s.fetch_timeframes() for s in sessions]
+
+        for _ in range(count):
+            dataset = DataSet.empty()
+            for session in sessions:
+                windows = list(session.window_gen())
+                dataset = dataset + session.dataset(windows=windows)
+
+            yield dataset
