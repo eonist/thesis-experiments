@@ -21,7 +21,7 @@ pd.set_option('display.width', 1000)
 # <--- PARAMETER GRIDS --->
 
 param_grid = {
-    "dataset_type": ["none_rest", "arm_foot", "left_right"],
+    "dataset_type": [t.value for t in DSType],
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian", "nn"],
     "preprocessor": [
         "filter;csp;mean_power",
@@ -37,8 +37,11 @@ conditional_param_grid = {
         "kernel": ["linear", "rbf", "sigmoid"]
     },
     "nn": {
-        "epochs": [100, 200],
-        "verbose": 0
+        "verbose": 0,
+        "epochs": [10, 50, 100, 200],
+        "loss": ["mean_squared_error", "binary_crossentropy"],
+        "n_layers": [3, 5, 10],
+        "start_units": [100, 50, 20, 10]
     },
     "filter": {
         "kernel": ["mne", "custom"],
@@ -50,7 +53,7 @@ conditional_param_grid = {
         "n_components": [1, 2, 4]
     },
     "lda": {
-        "solver": ["svd", "lsqr", "eigen"]
+        "solver": ["lsqr"]
     },
     "mean_power": {
         "log": [True, False]
@@ -164,11 +167,15 @@ class ExperimentSet:
 
     def run_experiments(self):
 
-        datasets = []
-        for ds in tqdm(Session.full_dataset_gen(count=self.cv_splits), total=self.cv_splits, desc="Fetching DataSets"):
-            ds = ds.binary_dataset(self.params["dataset_type"])
-            ds.shuffle()
-            datasets.append(ds)
+        if isinstance(self.params["dataset_type"], str):
+            datasets = []
+            for ds in tqdm(Session.full_dataset_gen(count=self.cv_splits), total=self.cv_splits,
+                           desc="Fetching DataSets"):
+                ds = ds.binary_dataset(self.params["dataset_type"])
+                ds.shuffle()
+                datasets.append(ds)
+        else:
+            datasets = None
 
         for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
             exp = Experiment.from_params(exp_params)
@@ -212,10 +219,10 @@ class ExperimentSet:
 
                 res += "---\n\n"
                 res += "### Kappa: {}\n".format(np.round(exp.results["kappa"], DECIMALS))
-
-                res += "* **Dataset type:** {}\n".format(exp.dataset_type)
                 res += "* **Accuracy:** {}\n".format(np.round(exp.results["accuracy"], DECIMALS))
                 res += "* **Average Time:** {}\n".format(np.round(exp.results["time"]["exp"], DECIMALS))
+                res += "* **Dataset type:** {}\n".format(exp.dataset_type)
+                res += "* **Dataset length:** {}\n".format(exp.datasets[0].length)
                 res += "* **CV Splits:** {}\n".format(exp.results["cv_splits"])
                 res += "\n"
 
@@ -258,7 +265,7 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": str(DSType.NONE_REST),
+        "dataset_type": str(DSType.FOOT_LEFT_RIGHT),
         "classifier": "nn",
         "preprocessor": "filter;csp;mean_power",
         "svm": {
@@ -266,6 +273,13 @@ if __name__ == '__main__':
         },
         "lda": {
             "solver": "lsqr"
+        },
+        "nn": {
+            "n_layers": 3,
+            "start_units": 10,
+            "epochs": 100,
+            "loss": "mean_squared_error",
+            "verbose": 0
         },
         "filter": {
             "kernel": "mne",
@@ -287,6 +301,6 @@ if __name__ == '__main__':
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=10, **params)
+    exp_set = ExperimentSet(cv_splits=5, **params)
 
     exp_set.run_experiments()

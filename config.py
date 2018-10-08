@@ -48,3 +48,4 @@ class Path:
 
     session_cache = "{}/data/session_cache".format(_project_root)
     exp_logs = "{}/data/exp_logs".format(_project_root)
+    plots = "{}/data/plots".format(_project_root)

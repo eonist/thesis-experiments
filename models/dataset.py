@@ -14,6 +14,10 @@ class DataSet:
         self.is_child = is_child
         self.label_map = label_map
 
+        self.train = None
+        self.test = None
+        self.val = None
+
     @classmethod
     def empty(cls):
         return cls([], [])
@@ -35,7 +39,14 @@ class DataSet:
         for X_part, Y_part in zip(X_parts, y_parts):
             res.append(DataSet(X_part, Y_part, is_child=True, label_map=self.label_map))
 
-        # order: ds_train, ds_val, ds_test
+        if include_val:
+            self.train = res[0]
+            self.val = res[1]
+            self.test = res[2]
+        else:
+            self.train = res[0]
+            self.test = res[1]
+
         return res
 
     def shuffle(self):

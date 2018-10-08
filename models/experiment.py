@@ -10,10 +10,11 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
+from tqdm import tqdm
 
 from config import CV_SPLITS, TEST_SIZE
+from models.my_pipeline import CustomPipeline
 from models.neural_network import NeuralNetwork
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
@@ -43,12 +44,12 @@ class Experiment:
         self.cv_splits = CV_SPLITS
         self.test_size = TEST_SIZE
         self.raw_params = kwargs.get('raw_params', dict())
-        self.dataset_type = DSType(kwargs.get('dataset_type', "arm_foot"))
+        self.dataset_type = DSType(kwargs["dataset_type"])
 
         self.pipeline_items = pipeline_items
         self.pipeline = self.create_pipeline()
 
-        self.datasets = []
+        self.datasets = None
 
         self.results = {}
 
@@ -81,7 +82,7 @@ class Experiment:
             initializer = pipeline_classes[item]
             pipeline_input.append((item, initializer(**params)))
 
-        return Pipeline(pipeline_input)
+        return CustomPipeline(pipeline_input)
 
     def run(self):
         accuracies = []
@@ -97,19 +98,25 @@ class Experiment:
             if self.pipeline_items == ["emd", "stats", "svm"]:
                 raise Exception("emd;stats;svm should not be used together")
 
-            if not self.datasets:
-                for i in range(self.cv_splits):
+            if self.datasets is None:
+                self.datasets = list()
+                for i in tqdm(range(self.cv_splits), desc="Fetching DataSets"):
                     ds = Session.full_dataset()
                     ds = ds.binary_dataset(self.dataset_type)
                     ds.shuffle()
                     self.datasets.append(ds)
 
-            for ds in self.datasets:
+            for ds in tqdm(self.datasets, desc="Cross validating"):
                 ds_train, ds_test = ds.split(include_val=False)
 
                 start_fit_time = time.time()
-                self.pipeline.fit(ds_train.X, ds_train.y)
+                fit_output = self.pipeline.fit(ds_train.X, ds_train.y)
                 fit_time += time.time() - start_fit_time
+
+                # try:
+                #     plot_training_history(fit_output, loss_function=self.raw_params["nn"]["loss"])
+                # except Exception as e:
+                #     Print.warning("Could not plot fit_output")
 
                 start_predict_time = time.time()
                 predictions = self.pipeline.predict(ds_test.X)
@@ -145,7 +152,8 @@ class Experiment:
         self.results["cv_splits"] = self.cv_splits
         self.results["success"] = True
 
-    def mod_kappa(self, y_train, accuracy):
+    @staticmethod
+    def mod_kappa(y_train, accuracy):
         unique, counts = np.unique(y_train, return_counts=True)
         p_e = counts[0] / len(y_train)
 
