@@ -21,15 +21,13 @@ import os
 # None is 0
 # Arm events are 1 and 2, foot events are 3 and 4
 # Right events are odd, left events are even
-LABEL_MAP = {
-    "None": 0,
+BASE_LABEL_MAP = {
+    "none": 0,
     "arm/right": 1,
     "arm/left": 2,
     "foot/right": 3,
     "foot/left": 4
 }
-
-INV_LABEL_MAP = {v: k for k, v in LABEL_MAP.items()}
 
 WINDOW_LENGTH = 250
 

@@ -5,7 +5,7 @@ import random
 import numpy as np
 import requests
 
-from config import URL, LABEL_MAP, Path, WINDOW_LENGTH
+from config import URL, BASE_LABEL_MAP, Path, WINDOW_LENGTH
 from models.dataset import DataSet
 
 
@@ -90,8 +90,8 @@ class Session:
             m[i, 0:n_channels] = data["sensor_data"]
             m[i, n_channels] = data["timestamp"] - time_zero
 
-            label_name = data["label"]["name"].strip()
-            m[i, n_channels + 1] = LABEL_MAP[label_name]
+            label_name = data["label"]["name"].strip().lower()
+            m[i, n_channels + 1] = BASE_LABEL_MAP[label_name]
 
         self.timeframes = m
         return m

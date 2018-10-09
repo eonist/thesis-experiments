@@ -44,7 +44,7 @@ class Experiment:
         self.cv_splits = CV_SPLITS
         self.test_size = TEST_SIZE
         self.raw_params = kwargs.get('raw_params', dict())
-        self.dataset_type = DSType(kwargs["dataset_type"])
+        self.dataset_type = DSType.from_string(kwargs["dataset_type"])
 
         self.pipeline_items = pipeline_items
         self.pipeline = self.create_pipeline()
@@ -85,9 +85,11 @@ class Experiment:
         return CustomPipeline(pipeline_input)
 
     def run(self):
+        n_classes = self.dataset_type.n_classes
+
         accuracies = []
         kappas = []
-        c_matrix = np.zeros([2, 2])
+        c_matrix = np.zeros([n_classes, n_classes])
         reports = []
 
         start_time = time.time()
@@ -102,7 +104,8 @@ class Experiment:
                 self.datasets = list()
                 for i in tqdm(range(self.cv_splits), desc="Fetching DataSets"):
                     ds = Session.full_dataset()
-                    ds = ds.binary_dataset(self.dataset_type)
+                    ds = ds.reduced_dataset(self.dataset_type)
+                    ds = ds.normalize()
                     ds.shuffle()
                     self.datasets.append(ds)
 
@@ -130,7 +133,7 @@ class Experiment:
                 accuracies.append(accuracy)
 
                 reports.append(classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
-                                                     target_names=self.dataset_type.labels))
+                                                     target_names=[l.value for l in self.dataset_type.labels]))
 
         except Exception as e:
             print("")
@@ -150,6 +153,7 @@ class Experiment:
         self.results["confusion_matrix"] = c_matrix
         self.results["avg_report"] = avg_dict(reports)
         self.results["cv_splits"] = self.cv_splits
+        self.results["output_shape"] = self.output_shape
         self.results["success"] = True
 
     @staticmethod
@@ -158,6 +162,19 @@ class Experiment:
         p_e = counts[0] / len(y_train)
 
         return (accuracy - p_e) / (1 - p_e)
+
+    @property
+    def output_shape(self):
+        return self.pipeline_shapes()[-1]
+
+    def pipeline_shapes(self, return_dict=False):
+        if return_dict:
+            res = {key: val.shape for key, val in self.pipeline.named_steps.items() if hasattr(val, "shape")}
+        else:
+            res = [s.shape for s in self.pipeline.named_steps.values() if hasattr(s, "shape")]
+
+        print(res)
+        return res
 
 
 if __name__ == '__main__':

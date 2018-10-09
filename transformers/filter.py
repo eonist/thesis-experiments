@@ -13,6 +13,7 @@ class Filter(BaseEstimator, TransformerMixin):
         self.picks = picks
         self.fs = 250
         self.kernel = kernel
+        self.shape = None
 
     def fit(self, *_):
         return self
@@ -38,12 +39,17 @@ class Filter(BaseEstimator, TransformerMixin):
         raws = [raw.filter(self.l_freq, self.h_freq, fir_design='firwin', skip_by_annotation='edge') for raw in raws]
 
         X = np.array([data for data, times in [raw[:] for raw in raws]])
+
+        self.shape = np.shape(X)
+
         return X
 
     # <--- CUSTOM FILTER METHODS --->
 
     def custom_transform(self, X, *args):
-        return np.asarray([self.butter_bandpass_filter(x, self.l_freq, self.h_freq, self.fs) for x in X])
+        X = np.asarray([self.butter_bandpass_filter(x, self.l_freq, self.h_freq, self.fs) for x in X])
+        self.shape = np.shape(X)
+        return X
 
     @staticmethod
     def butter_bandpass(lowcut, highcut, fs, order=5):

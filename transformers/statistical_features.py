@@ -26,6 +26,8 @@ class StatisticalFeatures(BaseEstimator, TransformerMixin):
         else:
             self.features = features
 
+        self.shape = None
+
     def transform(self, X, *args):
         n_samples, n_signals, window_length = np.shape(X)
         X_t = np.empty([n_samples, len(self.features) * n_signals])
@@ -33,6 +35,8 @@ class StatisticalFeatures(BaseEstimator, TransformerMixin):
         for i, sample in enumerate(X):
             X_t[i] = self._transform_sample(sample)
 
+        self.shape = np.shape(X_t)
+        
         return X_t
 
     def _transform_sample(self, sample):

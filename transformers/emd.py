@@ -6,6 +6,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 class EMD(BaseEstimator, TransformerMixin):
     def __init__(self, n_imfs):
         self.n_imfs = n_imfs
+        self.shape = None
 
     def transform(self, X, *args):
         n_samples, n_signals, window_length = np.shape(X)
@@ -13,6 +14,7 @@ class EMD(BaseEstimator, TransformerMixin):
         for i, sample in enumerate(X):
             X_t[i] = self._transform_sample(sample)
 
+        self.shape = np.shape(X_t)
         return X_t
 
     def _transform_sample(self, sample):

@@ -20,8 +20,13 @@ pd.set_option('display.width', 1000)
 
 # <--- PARAMETER GRIDS --->
 
+ds_types = [
+    DSType(["none", "event"]),
+    DSType(["arm", "foot"])
+]
+
 param_grid = {
-    "dataset_type": [t.value for t in DSType],
+    "dataset_type": [str(t) for t in ds_types],
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian", "nn"],
     "preprocessor": [
         "filter;csp;mean_power",
@@ -171,7 +176,8 @@ class ExperimentSet:
             datasets = []
             for ds in tqdm(Session.full_dataset_gen(count=self.cv_splits), total=self.cv_splits,
                            desc="Fetching DataSets"):
-                ds = ds.binary_dataset(self.params["dataset_type"])
+                ds = ds.reduced_dataset(self.params["dataset_type"])
+                ds = ds.normalize()
                 ds.shuffle()
                 datasets.append(ds)
         else:
@@ -222,7 +228,9 @@ class ExperimentSet:
                 res += "* **Accuracy:** {}\n".format(np.round(exp.results["accuracy"], DECIMALS))
                 res += "* **Average Time:** {}\n".format(np.round(exp.results["time"]["exp"], DECIMALS))
                 res += "* **Dataset type:** {}\n".format(exp.dataset_type)
-                res += "* **Dataset length:** {}\n".format(exp.datasets[0].length)
+                res += "* **Dataset avg length:** {}\n".format(
+                    np.round(np.mean([d.length for d in exp.datasets]), DECIMALS))
+                res += "* **Output Shape:** {}\n".format(exp.results["output_shape"])
                 res += "* **CV Splits:** {}\n".format(exp.results["cv_splits"])
                 res += "\n"
 
@@ -265,7 +273,7 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": str(DSType.FOOT_LEFT_RIGHT),
+        "dataset_type": "none_arm_foot",
         "classifier": "nn",
         "preprocessor": "filter;csp;mean_power",
         "svm": {

@@ -9,6 +9,8 @@ class MeanPower(BaseEstimator, TransformerMixin):
         self.mean = None
         self.std = None
 
+        self.shape = None
+
     def transform(self, X, *args):
         X = (X ** 2).mean(axis=2)
 
@@ -17,6 +19,8 @@ class MeanPower(BaseEstimator, TransformerMixin):
         else:
             X -= self.mean
             X /= self.std
+
+        self.shape = np.shape(X)
 
         return X
 

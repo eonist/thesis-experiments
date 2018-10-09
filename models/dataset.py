@@ -1,6 +1,6 @@
 import numpy as np
 
-from config import LABEL_MAP
+from config import BASE_LABEL_MAP
 from utils.enums import DSType
 from utils.prints import Print
 
@@ -8,7 +8,7 @@ from utils.prints import Print
 class DataSet:
     split_ratio = (0.6, 0.8)
 
-    def __init__(self, X, y, is_child=False, label_map=LABEL_MAP):
+    def __init__(self, X, y, is_child=False, label_map=BASE_LABEL_MAP):
         self.X = np.array(X)
         self.y = np.array(y)
         self.is_child = is_child
@@ -49,6 +49,22 @@ class DataSet:
 
         return res
 
+    def split_by_labels(self):
+        datasets = {}
+
+        labels = np.unique(self.y)
+
+        for label in labels:
+            p = [self.y == label]
+            y_l = self.y[p]
+            X_l = self.X[p]
+            datasets[label] = (DataSet(X_l, y_l))
+
+    def trim(self, new_length):
+        if self.length > new_length:
+            self.X = self.X[:new_length]
+            self.y = self.y[:new_length]
+
     def shuffle(self):
         p = np.random.permutation(self.length)
         self.X = self.X[p]
@@ -58,6 +74,7 @@ class DataSet:
     def length(self):
         return len(self.y)
 
+    @property
     def one_hot(self):
         n_categories = len(set(self.y))
         Yoh = np.empty([self.length, n_categories])
@@ -73,50 +90,36 @@ class DataSet:
         unique, counts = np.unique(self.y, return_counts=True)
         return dict(zip(unique, counts))
 
-    def binary_dataset(self, type):
-        if isinstance(type, str):
-            type = DSType(type)
+    def reduced_dataset(self, ds_type):
+        if isinstance(ds_type, str):
+            ds_type = DSType.from_string(ds_type)
 
-        if type == DSType.NONE_REST:
-            ds = self
-            ds.y = np.array([0 if val == 0 else 1 for val in ds.y])
-            ds.label_map = {"none": 0, "event": 1}
-        elif type == DSType.ARM_FOOT:
-            ds = self.reduced_dataset([1, 2, 3, 4])
-            ds.y = np.array([0 if val in [1, 2] else 1 for val in ds.y])
-            ds.label_map = {"arm": 0, "foot": 1}
-        elif type == DSType.LEFT_RIGHT:
-            ds = self.reduced_dataset([1, 2, 3, 4])
-            ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
-            ds.label_map = {"left": 0, "right": 1}
-        elif type == DSType.ARM_LEFT_RIGHT:
-            ds = self.reduced_dataset([1, 2])
-            ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
-            ds.label_map = {"arm/left": 0, "arm/right": 1}
-        elif type == DSType.FOOT_LEFT_RIGHT:
-            ds = self.reduced_dataset([3, 4])
-            ds.y = np.array([0 if val % 2 == 0 else 1 for val in ds.y])
-            ds.label_map = {"foot/left": 0, "foot/right": 1}
-        else:
-            ds = None
-            Print.failure("Binary label type not found: {}".format(type))
+        p = [y_val in ds_type.base_integer_list for y_val in self.y]
+
+        ds = DataSet(self.X[p], self.y[p])
+        ds.y = ds_type.adjust_y(ds.y)
+        ds.label_map = ds_type.label_map
 
         return ds
 
-    def reduced_dataset(self, labels):
-        y = np.array([self.y[i] for i in range(self.length) if self.y[i] in labels])
-        X = np.array([self.X[i] for i in range(self.length) if self.y[i] in labels])
-
-        return DataSet(X, y)
-
     def normalize(self):
-        min_label_count = min(list(self.distribution().values()))
-        print(min_label_count)
+        labels, count = np.unique(self.y, return_counts=True)
+        min_count = min(count)
 
-        for label in np.unique(self.y):
-            while self.distribution()[label] > min_label_count:
-                # TODO: Finish this
-                pass
+        norm_ds = DataSet.empty()
+        for label in labels:
+            p = [self.y == label]
+            y_l = self.y[p]
+            X_l = self.X[p]
+
+            ds_l = DataSet(X_l, y_l)
+            ds_l.shuffle()
+            ds_l.trim(min_count)
+
+            norm_ds += ds_l
+
+        norm_ds.shuffle()
+        return norm_ds
 
     def label_str(self, label_id):
         for (key, val) in self.label_map.items():

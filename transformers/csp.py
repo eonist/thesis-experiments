@@ -17,6 +17,7 @@ class CSP(MneCSP):
         super().__init__(n_components=n_components, transform_into="csp_space", **kwargs)
         self.kernel = kernel
         self.filters_ = None
+        self.shape = None
 
     def transform(self, X, *args):
         if self.kernel == "mne":
@@ -26,6 +27,7 @@ class CSP(MneCSP):
         else:
             raise InvalidKernel(self.kernel)
 
+        self.shape = np.shape(X)
         return X
 
     def fit(self, X, y):
