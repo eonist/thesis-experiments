@@ -5,10 +5,12 @@ import os
 import pathlib
 import random
 import string
+from queue import Empty
 
 import numpy as np
 
-from config import TIME_FORMAT, DATE_FILE_FORMAT, DATE_FORMAT
+from config import TIME_FORMAT, DATE_FILE_FORMAT, DATE_FORMAT, DECIMALS
+from utils.prints import Print
 
 
 def func_name():
@@ -53,6 +55,8 @@ def np_append(arr, value):
 def notify(title="Notification", text=""):
     os.system("""osascript -e 'display notification "{}" with title "{}"'""".format(text, title))
 
+
+# <--- DICT OPERATIONS --->
 
 def flatten_dict(d, parent_key='', sep='__'):
     items = []
@@ -99,31 +103,35 @@ def is_number(s):
     try:
         float(s)
         return True
-    except ValueError:
+    except Exception:
         return False
+
+
+def find_number_paths(data, key_path=None):
+    number_paths = []
+
+    if isinstance(data, dict):
+        for key, val in data.items():
+            new_key_path = key_path + "__{}".format(key) if key_path is not None else key
+            number_paths += find_number_paths(val, new_key_path)
+    elif isinstance(data, list):
+        for i in range(len(data)):
+            new_key_path = key_path + "__{}".format(i) if key_path is not None else str(i)
+            number_paths += find_number_paths(data[i], new_key_path)
+    elif is_number(data):
+        number_paths.append(key_path)
+
+    return number_paths
 
 
 def avg_dict(dict_list, decimals=None):
     """ Assumes all the dicts in the list are structurally identical """
 
-    def find_number_paths(data, key_path):
-        number_paths = []
-
-        if isinstance(data, dict):
-            for key, val in data.items():
-                new_key_path = key_path + "__{}".format(key) if key_path is not None else key
-                number_paths += find_number_paths(val, new_key_path)
-        elif isinstance(data, list):
-            for i in range(len(data)):
-                new_key_path = key_path + "__{}".format(i) if key_path is not None else str(i)
-                number_paths += find_number_paths(data[i], new_key_path)
-        elif is_number(data):
-            number_paths.append(key_path)
-
-        return number_paths
+    if len(dict_list) <= 0:
+        return {}
 
     d = dict_list[0]
-    number_paths = find_number_paths(d, None)
+    number_paths = find_number_paths(d)
 
     res = copy.deepcopy(d)
 
@@ -137,12 +145,37 @@ def avg_dict(dict_list, decimals=None):
     return res
 
 
+def round_dict(d, decimals=DECIMALS):
+    number_paths = find_number_paths(d)
+
+    res = copy.deepcopy(d)
+
+    for key in number_paths:
+        rounded_num = np.round(dict_get(res, multilevel_key=key), decimals=decimals)
+        dict_set(res, key, rounded_num)
+    return res
+
+
+# <--- MULTIPROCESSING --->
+
+def worker(i, working_queue, output_q, func):
+    while True:
+        try:
+            job = working_queue.get_nowait()
+            Print.progress("Worker {} is doing a job".format(i))
+            output_q.put(func(job))
+        except Empty:
+            break
+
+    return
+
+
 if __name__ == '__main__':
-    dict1 = {'arm': {'precision': [1, 6, 10], 'recall': 2},
+    dict1 = {'arm': {'precision': [1.1323234, 6.1493832, 10], 'recall': 2},
              'foot': {'precision': 1, 'recall': 1}}
 
     dict2 = {'arm': {'precision': [3, 14, 100], 'recall': 3},
              'foot': {'precision': 2, 'recall': 0}}
 
-    res = avg_dict([dict1, dict2])
+    res = round_dict(dict1)
     print(res)

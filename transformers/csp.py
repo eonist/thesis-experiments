@@ -6,6 +6,7 @@ from mne.decoding import CSP as MneCSP
 from numpy.linalg import multi_dot as dot
 
 from utils.exceptions import InvalidKernel
+from utils.prints import Print
 
 warnings.filterwarnings('ignore')
 
@@ -18,6 +19,7 @@ class CSP(MneCSP):
         self.kernel = kernel
         self.filters_ = None
         self.shape = None
+        self.n_classes = None
 
     def transform(self, X, *args):
         if self.kernel == "mne":
@@ -43,16 +45,16 @@ class CSP(MneCSP):
     # <--- CUSTOM CSP METHODS --->
 
     def custom_fit(self, X, y):
-        if len(y) < 2:
+        classes = np.unique(y)
+        self.n_classes = len(classes)
+
+        if self.n_classes < 2:
             print("Must have at least 2 tasks for filtering.")
             return self
 
         n_samples, n_signals, window_length = np.shape(X)
 
-        classes = np.unique(y)
-        n_classes = len(classes)
-
-        filters = np.zeros([n_classes, n_signals, n_signals])
+        filters = np.zeros([self.n_classes, n_signals, n_signals])
 
         for i, class_id in enumerate(classes):
 
@@ -76,18 +78,33 @@ class CSP(MneCSP):
             filters[i] = SFx
 
             # Special case: only two tasks, no need to compute any more mean variances
-            if n_classes == 2:
+            if self.n_classes == 2:
                 filters[1] = self.spatial_filter(not_Rx, Rx)
                 break
 
-        self.filters_ = filters[0]
+        self.filters_ = filters
 
     def custom_transform(self, X, *args):
-        filters = self.filters_[:self.n_components]
-        X = np.asarray([np.dot(filters, sample) for sample in X])
-        return X
-        # new_shape = np.shape(X)
-        # return np.reshape(X, [new_shape[0], new_shape[1] * new_shape[2], new_shape[3]])
+
+        if self.n_classes == 2:
+            filters = self.filters_[0, :self.n_components]
+        else:
+            filters = self.filters_[:, :self.n_components]
+
+        n_samples, n_signals, window_length = np.shape(X)
+        res = np.zeros([n_samples, self.n_components, len(filters), window_length])
+        for i, sample in enumerate(X):
+            for j, filter in enumerate(filters):
+                try:
+                    res[i, :, j, :] = np.dot(filter, sample)
+                except Exception as e:
+                    Print.ex(e)
+                    Print.data(i)
+                    Print.data(j)
+                    Print.data(np.shape(res))
+                    Print.data(np.shape(filters))
+
+        return np.reshape(res, [n_samples, self.n_components * len(filters), window_length])
 
     @staticmethod
     def cov_matrix(m):

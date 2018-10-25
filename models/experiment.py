@@ -1,6 +1,8 @@
 import binascii
 import json
+import multiprocessing as mp
 import time
+from queue import Empty
 
 import numpy as np
 from sklearn import svm
@@ -45,13 +47,21 @@ class Experiment:
         self.test_size = TEST_SIZE
         self.raw_params = kwargs.get('raw_params', dict())
         self.dataset_type = DSType.from_string(kwargs["dataset_type"])
+        self.window_length = kwargs["window_length"]
 
         self.pipeline_items = pipeline_items
         self.pipeline = self.create_pipeline()
 
-        self.datasets = None
+        self.multiprocessing = False
 
-        self.results = {}
+        self.datasets = None
+        self.cv_reports = []
+
+        self.report = dict(
+            dataset_type=self.dataset_type,
+            raw_params=self.raw_params,
+            time={}
+        )
 
     @classmethod
     def from_params(cls, params):
@@ -85,16 +95,7 @@ class Experiment:
         return CustomPipeline(pipeline_input)
 
     def run(self):
-        n_classes = self.dataset_type.n_classes
-
-        accuracies = []
-        kappas = []
-        c_matrix = np.zeros([n_classes, n_classes])
-        reports = []
-
         start_time = time.time()
-        fit_time = 0
-        predict_time = 0
 
         try:
             if self.pipeline_items == ["emd", "stats", "svm"]:
@@ -103,58 +104,103 @@ class Experiment:
             if self.datasets is None:
                 self.datasets = list()
                 for i in tqdm(range(self.cv_splits), desc="Fetching DataSets"):
-                    ds = Session.full_dataset()
+                    ds = Session.full_dataset(window_length=self.window_length)
                     ds = ds.reduced_dataset(self.dataset_type)
                     ds = ds.normalize()
                     ds.shuffle()
                     self.datasets.append(ds)
 
-            for ds in tqdm(self.datasets, desc="Cross validating"):
-                ds_train, ds_test = ds.split(include_val=False)
-
-                start_fit_time = time.time()
-                fit_output = self.pipeline.fit(ds_train.X, ds_train.y)
-                fit_time += time.time() - start_fit_time
-
-                # try:
-                #     plot_training_history(fit_output, loss_function=self.raw_params["nn"]["loss"])
-                # except Exception as e:
-                #     Print.warning("Could not plot fit_output")
-
-                start_predict_time = time.time()
-                predictions = self.pipeline.predict(ds_test.X)
-                predict_time += time.time() - start_predict_time
-
-                accuracy = self.pipeline.score(ds_test.X, ds_test.y)
-
-                kappas.append(self.mod_kappa(ds_train.y, accuracy))
-                c_matrix += confusion_matrix(ds_test.y, predictions)
-
-                accuracies.append(accuracy)
-
-                reports.append(classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
-                                                     target_names=[l.value for l in self.dataset_type.labels]))
+            if self.multiprocessing:
+                self.run_multi()
+            else:
+                for ds in tqdm(self.datasets, desc="Cross validating"):
+                    self.cv_reports.append(self.run_cv(ds))
 
         except Exception as e:
             print("")
             Print.warning("Skipping experiment: {}".format(e))
             Print.ex(e)
-            self.results["success"] = False
+            self.report["success"] = False
             return
 
-        self.results["time"] = {
-            "exp": (time.time() - start_time) / self.cv_splits,
-            "fit": fit_time / self.cv_splits,
-            "predict": predict_time / self.cv_splits
-        }
-        self.results["accuracy"] = np.mean(accuracies)
-        self.results["accuracies"] = accuracies
-        self.results["kappa"] = np.mean(kappas)
-        self.results["confusion_matrix"] = c_matrix
-        self.results["avg_report"] = avg_dict(reports)
-        self.results["cv_splits"] = self.cv_splits
-        self.results["output_shape"] = self.output_shape
-        self.results["success"] = True
+        self.report = {**self.report, **avg_dict(self.cv_reports)}
+        self.report["confusion_matrix"] = np.sum([r["confusion_matrix"] for r in self.cv_reports], 0)
+
+        self.report["time"]["exp"] = (time.time() - start_time)
+        self.report["accuracies"] = [r["accuracy"] for r in self.cv_reports]
+        self.report["cv_splits"] = self.cv_splits
+        self.report["feature_vector_length"] = self.feature_vector_length()
+        self.report["success"] = True
+        self.report["dataset_lengths"] = [d.length for d in self.datasets]
+
+    def run_multi(self):
+        working_q = mp.Queue()
+        output_q = mp.Queue()
+
+        for i in range(len(self.datasets)):
+            working_q.put(i)
+
+        n_workers = np.min([mp.cpu_count(), self.cv_splits])
+
+        Print.info("Using {} workers".format(n_workers))
+        processes = [mp.Process(target=self.worker, args=(i, working_q, output_q, self.pipeline)) for i in
+                     range(n_workers)]
+
+        for proc in processes:
+            proc.start()
+
+        for proc in processes:
+            proc.join()
+
+        while True:
+            try:
+                self.cv_reports.append(output_q.get_nowait())
+            except Empty:
+                break
+
+    def worker(self, i, working_queue, output_q, pipeline):
+        while True:
+            try:
+                ds_index = working_queue.get_nowait()
+                ds = self.datasets[ds_index]
+
+                Print.progress("Worker {} is doing a job".format(i))
+
+                cv_report = self.run_cv(ds, pipeline)
+
+                output_q.put(cv_report)
+            except Empty:
+                break
+
+        return
+
+    def run_cv(self, dataset, pipeline=None):
+        if pipeline is None:
+            pipeline = self.pipeline
+
+        cv_report = {"time": {}}
+
+        ds_train, ds_test = dataset.split(include_val=False)
+
+        start_fit_time = time.time()
+        fit_output = pipeline.fit(ds_train.X, ds_train.y)
+        cv_report["time"]["fit"] = time.time() - start_fit_time
+
+        start_predict_time = time.time()
+        predictions = pipeline.predict(ds_test.X)
+        cv_report["time"]["pred"] = time.time() - start_predict_time
+
+        accuracy = pipeline.score(ds_test.X, ds_test.y)
+
+        cv_report["kappa"] = self.mod_kappa(ds_train.y, accuracy)
+        cv_report["confusion_matrix"] = confusion_matrix(ds_test.y, predictions)
+        cv_report["accuracy"] = accuracy
+        cv_report["report"] = classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
+                                                    target_names=[l.value for l in self.dataset_type.labels])
+
+        self.feature_vector_length()
+
+        return cv_report
 
     @staticmethod
     def mod_kappa(y_train, accuracy):
@@ -163,18 +209,20 @@ class Experiment:
 
         return (accuracy - p_e) / (1 - p_e)
 
-    @property
-    def output_shape(self):
-        return self.pipeline_shapes()[-1]
+    def feature_vector_length(self):
+        pipeline_input = []
 
-    def pipeline_shapes(self, return_dict=False):
-        if return_dict:
-            res = {key: val.shape for key, val in self.pipeline.named_steps.items() if hasattr(val, "shape")}
-        else:
-            res = [s.shape for s in self.pipeline.named_steps.values() if hasattr(s, "shape")]
+        for item in self.pipeline_items[:-1]:
+            params = self.raw_params[item] if item in self.raw_params else {}
+            initializer = pipeline_classes[item]
+            pipeline_input.append((item, initializer(**params)))
 
-        print(res)
-        return res
+        pipeline = CustomPipeline(pipeline_input)
+
+        ds = self.datasets[0]
+        data = pipeline.fit_transform(ds.X, ds.y)
+
+        return np.shape(data)[-1]
 
 
 if __name__ == '__main__':

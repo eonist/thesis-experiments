@@ -44,6 +44,8 @@ class DSLabel(enum.Enum):
 
 class DSType:
     def __init__(self, labels):
+        labels = [DSLabel(l) for l in labels]
+
         # Do it this way to ensure deterministic order
         self.labels = [DSLabel(l) for l in DSLabel if l in labels]
 
@@ -59,6 +61,18 @@ class DSType:
 
     def __eq__(self, other):
         return str(self) == str(other)
+
+    @classmethod
+    def variants(cls):
+        return [
+            cls(["none", "event"]),
+            cls(["arm", "foot"]),
+            cls(["none", "arm", "foot"]),
+            cls(["left", "right"]),
+            cls(["arm/left", "arm/right"]),
+            cls(["foot/left", "foot/right"]),
+            cls(["none", "arm/left", "arm/right", "foot/left", "foot/right"])
+        ]
 
     @classmethod
     def from_string(cls, string):

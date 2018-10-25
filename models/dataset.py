@@ -14,13 +14,13 @@ class DataSet:
         self.is_child = is_child
         self.label_map = label_map
 
-        self.train = None
-        self.test = None
-        self.val = None
-
     @classmethod
     def empty(cls):
         return cls([], [])
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["X"], d["y"], is_child=d["is_child"], label_map=d["label_map"])
 
     def split(self, include_val=True):
         if self.is_child:
@@ -38,14 +38,6 @@ class DataSet:
 
         for X_part, Y_part in zip(X_parts, y_parts):
             res.append(DataSet(X_part, Y_part, is_child=True, label_map=self.label_map))
-
-        if include_val:
-            self.train = res[0]
-            self.val = res[1]
-            self.test = res[2]
-        else:
-            self.train = res[0]
-            self.test = res[1]
 
         return res
 

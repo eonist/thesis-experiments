@@ -1,18 +1,20 @@
 import copy
 import datetime
-import json
+import multiprocessing as mp
+import time
+from queue import Empty
 
 import numpy as np
 import pandas as pd
-from tabulate import tabulate
 from tqdm import tqdm
 
-from config import Path, CV_SPLITS, DECIMALS
+from config import CV_SPLITS
 from models.experiment import Experiment
+from models.report import Report
 from models.session import Session
 from utils.enums import DSType
 from utils.prints import Print
-from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
+from utils.utils import datestamp_str, flatten_dict
 
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 500)
@@ -20,16 +22,14 @@ pd.set_option('display.width', 1000)
 
 # <--- PARAMETER GRIDS --->
 
-ds_types = [
-    DSType(["none", "event"]),
-    DSType(["arm", "foot"])
-]
 
 param_grid = {
-    "dataset_type": [str(t) for t in ds_types],
-    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian", "nn"],
+    "dataset_type": [str(t) for t in DSType.variants()],
+    "window_length": [100, 250, 500, 1000],
+    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
+        "emd;csp;mean_power",
         "csp;mean_power",
         "emd;stats",
         "stats",
@@ -48,10 +48,15 @@ conditional_param_grid = {
         "n_layers": [3, 5, 10],
         "start_units": [100, 50, 20, 10]
     },
+    "random_forest": {
+        "n_estimators": [1, 10, 100],
+        "criterion": ["gini", "entropy"]
+    },
     "filter": {
         "kernel": ["mne", "custom"],
-        "l_freq": [1, 7, 10],
-        "h_freq": [12, 30, None]
+        "l_freq": [7, 10, 15, 20],
+        "h_freq": [30, 50, None],
+        "band": ["delta", "theta", "alpha", "beta", "gamma"]
     },
     "csp": {
         "kernel": ["mne", "custom"],
@@ -64,7 +69,10 @@ conditional_param_grid = {
         "log": [True, False]
     },
     "emd": {
-        "n_imfs": [1, 2, 4]
+        "n_imfs": [1, 2, 4],
+        "imf_picks": ["1,2", "minkowski"],
+        "max_iter": [100, 500, 1000, 2000],
+        "subtract_residue": [True, False]
     },
     "stats": {
         "features": ["__all__", "__fast__"]
@@ -77,10 +85,13 @@ class ExperimentSet:
         self.params = dict(kwargs)
         self.init_time = datetime.datetime.now()
         self.exp_params_list = []
-        self.experiments = []
+        self.exp_reports = []
 
         self.description = description
         self.hypothesis = hypothesis
+
+        self.run_time = None
+        self.multiprocessing = None
 
         self.cv_splits = cv_splits
 
@@ -97,7 +108,6 @@ class ExperimentSet:
         for key in param_grid.keys():
             if key not in self.params:
                 self.params[key] = param_grid[key]
-                self.relevant_keys.append(key)
 
         exp_params_list = self.recurse_flatten(self.params)
 
@@ -114,10 +124,8 @@ class ExperimentSet:
                                 if val_key in self.params[key]:
                                     params[key][val_key] = self.params[key][val_key]
                                 else:
-                                    self.relevant_keys.append("{}__{}".format(key, val_key))
                                     params[key][val_key] = val_val
                             else:
-                                self.relevant_keys.append(key)
                                 params[key] = val
                     else:
                         params[key] = self.params[key] if key in self.params else val
@@ -128,8 +136,15 @@ class ExperimentSet:
         exp_params_list = self.recurse_flatten(exp_params_list)
 
         # The following two lines remove duplicate configurations
-        set_of_jsons = {json.dumps(d, sort_keys=True) for d in exp_params_list}
-        exp_params_list = [json.loads(t) for t in set_of_jsons]
+
+        out = []
+        for v in exp_params_list:
+            if v not in out:
+                out.append(v)
+
+        exp_params_list = out
+        # set_of_jsons = {json.dumps(d, sort_keys=True) for d in exp_params_list}
+        # exp_params_list = [json.loads(t) for t in set_of_jsons]
 
         Print.start("")
         print(pd.DataFrame([flatten_dict(e) for e in exp_params_list]))
@@ -146,6 +161,7 @@ class ExperimentSet:
             found_list = False
             for key, val in params.items():
                 if isinstance(val, list):
+                    self.relevant_keys.append(key)
                     found_list = True
                     for option in val:
                         new_params = copy.deepcopy(params)
@@ -156,6 +172,7 @@ class ExperimentSet:
                 elif isinstance(val, dict):
                     for val_key, val_val in val.items():
                         if isinstance(val_val, list):
+                            self.relevant_keys.append("{}__{}".format(key, val_key))
                             found_list = True
                             for option in val_val:
                                 new_params = copy.deepcopy(params)
@@ -171,101 +188,87 @@ class ExperimentSet:
     # <--- EXPERIMENT EXECUTION --->
 
     def run_experiments(self):
+        time.sleep(1)
+        start_run_time = time.time()
 
-        if isinstance(self.params["dataset_type"], str):
+        if isinstance(self.params["dataset_type"], str) and isinstance(self.params["window_length"], int):
             datasets = []
-            for ds in tqdm(Session.full_dataset_gen(count=self.cv_splits), total=self.cv_splits,
-                           desc="Fetching DataSets"):
+            ds_gen = Session.full_dataset_gen(count=self.cv_splits, window_length=self.params["window_length"])
+
+            for ds in tqdm(ds_gen, total=self.cv_splits, desc="Fetching DataSets"):
                 ds = ds.reduced_dataset(self.params["dataset_type"])
                 ds = ds.normalize()
                 ds.shuffle()
+
                 datasets.append(ds)
         else:
             datasets = None
 
-        for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
-            exp = Experiment.from_params(exp_params)
-            exp.cv_splits = self.cv_splits
-            exp.datasets = datasets
+        if self.multiprocessing == "exp":
+            self.run_multi(datasets)
+        else:
+            for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
+                exp = Experiment.from_params(exp_params)
+                exp.cv_splits = self.cv_splits
+                exp.datasets = datasets
+                exp.multiprocessing = self.multiprocessing == "cv"
 
-            exp.run()
-            self.experiments.append(exp)
+                exp.run()
+                self.exp_reports.append(exp.report)
 
+        self.run_time = time.time() - start_run_time
         self.generate_report()
         # notify("ExperimentSet finished running", "")
 
     def generate_report(self):
         print("\n")
         Print.success("Generating Report")
-        create_path_if_not_existing(Path.exp_logs)
 
-        fn = self.filename("exp_set_results", "md")
-        fp = "/".join([Path.exp_logs, fn])
+        report = Report(self, self.exp_reports)
+        report.generate()
 
-        with open(fp, 'w+') as file:
-            res = "# Experiment Set\n"
-            res += "{}\n".format(datestamp_str(self.init_time))
-            res += "\n\n"
-            if self.description:
-                res += "#### Description\n"
-                res += self.description + "\n"
+    @staticmethod
+    def worker(i, working_queue, output_q, cv_splits, datasets):
+        while True:
+            try:
+                exp_params = working_queue.get_nowait()
+                exp = Experiment.from_params(exp_params)
+                exp.cv_splits = cv_splits
+                exp.datasets = datasets
 
-            if self.hypothesis:
-                res += "#### Hypothesis\n"
-                res += self.hypothesis + "\n"
+                Print.progress("{}: Running Experiment".format(i))
+                exp.run()
+                output_q.put(exp.report)
+            except Empty:
+                Print.info("Queue Empty")
+                break
 
-            res += "\n\n"
-            res += "## Performance by configuration\n\n"
+        return
 
-            experiments = [exp for exp in self.experiments if exp.results["success"]]
-            experiments = sorted(experiments, key=lambda x: x.results["kappa"], reverse=True)
+    def run_multi(self, datasets):
+        working_q = mp.Queue()
+        output_q = mp.Queue()
 
-            for exp in experiments:
-                flat_params = flatten_dict(exp.raw_params)
+        for exp_params in self.exp_params_list:
+            working_q.put(exp_params)
 
-                res += "---\n\n"
-                res += "### Kappa: {}\n".format(np.round(exp.results["kappa"], DECIMALS))
-                res += "* **Accuracy:** {}\n".format(np.round(exp.results["accuracy"], DECIMALS))
-                res += "* **Average Time:** {}\n".format(np.round(exp.results["time"]["exp"], DECIMALS))
-                res += "* **Dataset type:** {}\n".format(exp.dataset_type)
-                res += "* **Dataset avg length:** {}\n".format(
-                    np.round(np.mean([d.length for d in exp.datasets]), DECIMALS))
-                res += "* **Output Shape:** {}\n".format(exp.results["output_shape"])
-                res += "* **CV Splits:** {}\n".format(exp.results["cv_splits"])
-                res += "\n"
+        n_workers = np.min([mp.cpu_count(), len(self.exp_params_list)])
 
-                res += "{}\n".format(np.round(exp.results["accuracies"], DECIMALS))
+        Print.info("Using {} workers".format(n_workers))
+        processes = [mp.Process(target=self.worker, args=(i, working_q, output_q, self.cv_splits, datasets)) for i in
+                     range(n_workers)]
 
-                res += "### Config\n"
-                res += "**Relevant Parameters**\n\n"
-                relevant_params = {key: flat_params[key] for key in self.relevant_keys if key in flat_params}
-                params_df = pd.DataFrame([relevant_params])
-                res += tabulate(params_df, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+        for proc in processes:
+            proc.start()
 
-                res += "**All Parameters**\n\n"
-                params_df = pd.DataFrame([flat_params])
-                res += tabulate(params_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=False) + "\n"
+        for proc in processes:
+            proc.join()
 
-                res += "### Details\n"
-
-                res += "**Confusion Matrix**\n\n"
-                c_matrix_df = pd.DataFrame(exp.results["confusion_matrix"],
-                                           columns=["Pred: {}".format(l) for l in exp.dataset_type.labels],
-                                           index=["__True: {}__".format(l) for l in exp.dataset_type.labels])
-                res += tabulate(c_matrix_df, tablefmt="pipe", headers="keys", showindex=True) + "\n"
-
-                res += "**Report**\n\n"
-                report = exp.results["avg_report"]
-                report_df = pd.DataFrame.from_dict(report)
-                report_key = list(report.keys())[0]
-                index = ["__{}__".format(key) for key in report[report_key].keys()]
-                res += tabulate(report_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=index) + "\n"
-
-                res += "**Time**\n\n"
-                time_df = pd.DataFrame([exp.results["time"]])
-                res += tabulate(time_df.round(DECIMALS), tablefmt="pipe", headers="keys", showindex=False) + "\n"
-
-            file.write(res)
+        while True:
+            try:
+                self.exp_reports.append(output_q.get_nowait())
+            except Empty:
+                break
 
 
 # <--- RUN CODE --->
@@ -273,42 +276,45 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_type": "none_arm_foot",
-        "classifier": "nn",
-        "preprocessor": "filter;csp;mean_power",
+        "window_length": 100,
+        "dataset_type": "none_arm/right_arm/left_foot/right_foot/left",
+        "classifier": "random_forest",
+        "preprocessor": ["emd;csp;mean_power", "emd;csp;stats", "emd;stats"],
         "svm": {
             "kernel": "linear"
         },
         "lda": {
             "solver": "lsqr"
         },
-        "nn": {
-            "n_layers": 3,
-            "start_units": 10,
-            "epochs": 100,
-            "loss": "mean_squared_error",
-            "verbose": 0
+        "random_forest": {
+            "n_estimators": 100,
+            "criterion": "entropy"
         },
         "filter": {
             "kernel": "mne",
-            "l_freq": 7,
-            "h_freq": 30
+            "l_freq": 20,
+            "h_freq": None,
+            "band": None
         },
         "csp": {
-            "kernel": "mne",
+            "kernel": "custom",
             "n_components": 4
         },
         "mean_power": {
             "log": True,
         },
         "emd": {
-            "n_imfs": 1
+            "n_imfs": 1,
+            "max_imfs": 0,
+            "imf_picks": "minkowski",
+            "max_iter": 500,
+            "subtract_residue": True
         },
         "stats": {
-            "features": "__fast__"
+            "features": "__all__"
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=5, **params)
-
+    exp_set = ExperimentSet(cv_splits=8, **params)
+    exp_set.multiprocessing = "cv"
     exp_set.run_experiments()

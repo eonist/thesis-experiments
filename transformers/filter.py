@@ -7,13 +7,30 @@ from sklearn.base import BaseEstimator, TransformerMixin
 class Filter(BaseEstimator, TransformerMixin):
     name = "filter"
 
-    def __init__(self, kernel="mne", l_freq=7, h_freq=30, picks=None):
+    def __init__(self, kernel="mne", band=None, l_freq=7, h_freq=30, picks=None):
         self.l_freq = l_freq
         self.h_freq = h_freq
         self.picks = picks
         self.fs = 250
         self.kernel = kernel
         self.shape = None
+
+        if band is not None:
+            if band == "delta":
+                self.l_freq = 0.5
+                self.h_freq = 4
+            elif band == "theta":
+                self.l_freq = 4
+                self.h_freq = 8
+            elif band == "alpha":
+                self.l_freq = 8
+                self.h_freq = 13
+            elif band == "beta":
+                self.l_freq = 13
+                self.h_freq = 32
+            elif band == "gamma":
+                self.l_freq = 32
+                self.h_freq = 100
 
     def fit(self, *_):
         return self

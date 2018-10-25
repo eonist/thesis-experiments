@@ -125,30 +125,30 @@ class Session:
         return DataSet(X, Y)
 
     @classmethod
-    def combined_dataset(cls, ids):
+    def combined_dataset(cls, ids, window_length):
         dataset = DataSet.empty()
         for id in ids:
             session = cls.from_api(id)
-            windows = list(session.window_gen())
+            windows = list(session.window_gen(window_length=window_length))
             dataset = dataset + session.dataset(windows)
 
         return dataset
 
     @classmethod
-    def full_dataset(cls):
+    def full_dataset(cls, window_length):
         sessions = cls.fetch_all(only_real=True)
         ids = [s.id for s in sessions]
-        return cls.combined_dataset(ids)
+        return cls.combined_dataset(ids, window_length=window_length)
 
     @classmethod
-    def full_dataset_gen(cls, count=1):
+    def full_dataset_gen(cls, window_length, count=1):
         sessions = cls.fetch_all(only_real=True)
         [s.fetch_timeframes() for s in sessions]
 
         for _ in range(count):
             dataset = DataSet.empty()
             for session in sessions:
-                windows = list(session.window_gen())
+                windows = list(session.window_gen(window_length=window_length))
                 dataset = dataset + session.dataset(windows=windows)
 
             yield dataset
