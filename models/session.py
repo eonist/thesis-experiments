@@ -96,17 +96,27 @@ class Session:
         self.timeframes = m
         return m
 
-    def window_gen(self, window_length=WINDOW_LENGTH):
+    def window_gen(self, window_length=WINDOW_LENGTH, plot=False):
         if self.timeframes is None:
             self.fetch_timeframes()
 
         i = random.randint(0, window_length / 2)
         n_timeframes = np.shape(self.timeframes)[0]
 
+        # image = np.zeros([100, n_timeframes])
+
         while i < n_timeframes - window_length:
             window = self.timeframes[i:i + window_length, :]
+            # image[:, i:i + window_length] += 0.3
+
             yield window
             i += window_length + random.randint(-window_length / 2, window_length / 2)
+
+        # if plot:
+        #     Print.point("Show image")
+        #     image[:, 0] = 1
+        #     imgplot = plt.imshow(image, cmap="binary")
+        #     plt.show()
 
     def dataset(self, windows):
         n_samples = len(windows)
@@ -114,15 +124,15 @@ class Session:
         window_length = np.shape(windows)[1]
 
         X = np.empty([n_samples, n_channels, window_length])
-        Y = np.empty([n_samples], dtype=np.int8)
+        y = np.empty([n_samples], dtype=np.int8)
 
         for i, window in enumerate(windows):
             X[i] = window[:, 0:n_channels].T
 
             unique_labels = set(window[:, -1])
-            Y[i] = int(max(unique_labels))
+            y[i] = int(max(window[:, -1]))
 
-        return DataSet(X, Y)
+        return DataSet(X, y)
 
     @classmethod
     def combined_dataset(cls, ids, window_length):

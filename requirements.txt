@@ -11,3 +11,4 @@ tabulate==0.8.2
 tqdm==4.26.0
 tensorflow
 keras_tqdm
+PyWavelets

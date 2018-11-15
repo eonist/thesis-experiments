@@ -3,13 +3,18 @@ import pandas as pd
 from tabulate import tabulate
 
 from config import Path, DECIMALS
+from utils.prints import Print
 from utils.utils import create_path_if_not_existing, datestamp_str, flatten_dict
 
 
 class Report:
     def __init__(self, exp_set, exp_reports):
         self.exp_reports = [r for r in exp_reports if r["success"]]
-        self.exp_reports.sort(key=lambda r: r["accuracy"], reverse=True)
+
+        try:
+            self.exp_reports.sort(key=lambda r: r["accuracy"], reverse=True)
+        except:
+            pass
 
         self.exp_set = exp_set
 
@@ -20,6 +25,7 @@ class Report:
         create_path_if_not_existing(Path.exp_logs)
 
         fn = self.filename("exp_set_results", "md")
+        Print.data(fn)
         fp = "/".join([Path.exp_logs, fn])
 
         res = "# Experiment Set\n"
@@ -61,7 +67,7 @@ class Report:
             res += "* **Dataset type:** {}\n".format(exp_report["dataset_type"])
             res += "* **Dataset avg length:** {}\n".format(
                 np.round(np.mean(exp_report["dataset_lengths"]), DECIMALS))
-            res += "* **Feature Vector Length:** {}\n".format(exp_report["feature_vector_length"])
+            # res += "* **Feature Vector Length:** {}\n".format(exp_report["feature_vector_length"])
             res += "* **CV Splits:** {}\n".format(exp_report["cv_splits"])
             res += "\n"
 

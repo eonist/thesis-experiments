@@ -6,7 +6,6 @@ from mne.decoding import CSP as MneCSP
 from numpy.linalg import multi_dot as dot
 
 from utils.exceptions import InvalidKernel
-from utils.prints import Print
 
 warnings.filterwarnings('ignore')
 
@@ -14,12 +13,13 @@ warnings.filterwarnings('ignore')
 class CSP(MneCSP):
     name = "csp"
 
-    def __init__(self, kernel="mne", n_components=4, **kwargs):
+    def __init__(self, kernel="mne", n_components=4, mode="1vall", **kwargs):
         super().__init__(n_components=n_components, transform_into="csp_space", **kwargs)
         self.kernel = kernel
         self.filters_ = None
         self.shape = None
         self.n_classes = None
+        self.mode = mode
 
     def transform(self, X, *args):
         if self.kernel == "mne":
@@ -45,6 +45,7 @@ class CSP(MneCSP):
     # <--- CUSTOM CSP METHODS --->
 
     def custom_fit(self, X, y):
+        y = y.astype(int)
         classes = np.unique(y)
         self.n_classes = len(classes)
 
@@ -54,38 +55,46 @@ class CSP(MneCSP):
 
         n_samples, n_signals, window_length = np.shape(X)
 
-        filters = np.zeros([self.n_classes, n_signals, n_signals])
+        if self.mode == "1vall":
+            filters = np.zeros([self.n_classes, n_signals, n_signals])
 
-        for i, class_id in enumerate(classes):
+            for i, class_id in enumerate(classes):
+                x = X[y == class_id]
+                not_x = X[y != class_id]
 
-            try:
-                y = [int(n) for n in y]
-                class_id = int(class_id)
-                # x = X[y == class_id]
+                Rx = np.average(np.array([np.cov(sample) for sample in x]), axis=0)
+                not_Rx = np.average(np.array([np.cov(sample) for sample in not_x]), axis=0)
 
-                x = [X[i] for i in range(len(y)) if y[i] == class_id]
-            except Exception as e:
-                print(class_id)
-                print(y)
-                raise e
+                SFx = self.spatial_filter(Rx, not_Rx)
+                filters[i] = SFx
 
-            Rx = np.average(np.array([self.cov_matrix(sample) for sample in x]), axis=0)
+                # Special case: only two tasks, no need to compute any more mean variances
+                if self.n_classes == 2:
+                    filters[1] = self.spatial_filter(not_Rx, Rx)
+                    break
+        elif self.mode == "1v1":
+            n_filters = (self.n_classes ** 2 - self.n_classes) // 2
+            filters = np.zeros([n_filters, n_signals, n_signals])
 
-            not_x = [X[i] for i in range(len(y)) if y[i] != class_id]
-            not_Rx = np.average(np.array([self.cov_matrix(sample) for sample in not_x]), axis=0)
+            idx = 0
 
-            SFx = self.spatial_filter(Rx, not_Rx)
-            filters[i] = SFx
+            for i in range(len(classes)):
+                for j in range(i):
+                    xi = X[y == classes[i]]
+                    xj = X[y == classes[j]]
 
-            # Special case: only two tasks, no need to compute any more mean variances
-            if self.n_classes == 2:
-                filters[1] = self.spatial_filter(not_Rx, Rx)
-                break
+                    Rxi = np.average(np.array([np.cov(sample) for sample in xi]), axis=0)
+                    Rxj = np.average(np.array([np.cov(sample) for sample in xj]), axis=0)
+
+                    SFx = self.spatial_filter(Rxi, Rxj)
+                    filters[idx] = SFx
+                    idx += 1
+        else:
+            raise Exception("Invalid CSP mode: {}".format(self.mode))
 
         self.filters_ = filters
 
     def custom_transform(self, X, *args):
-
         if self.n_classes == 2:
             filters = self.filters_[0, :self.n_components]
         else:
@@ -95,25 +104,12 @@ class CSP(MneCSP):
         res = np.zeros([n_samples, self.n_components, len(filters), window_length])
         for i, sample in enumerate(X):
             for j, filter in enumerate(filters):
-                try:
-                    res[i, :, j, :] = np.dot(filter, sample)
-                except Exception as e:
-                    Print.ex(e)
-                    Print.data(i)
-                    Print.data(j)
-                    Print.data(np.shape(res))
-                    Print.data(np.shape(filters))
+                res[i, :, j, :] = np.dot(filter, sample)
 
         return np.reshape(res, [n_samples, self.n_components * len(filters), window_length])
 
-    @staticmethod
-    def cov_matrix(m):
-        """ Calculate the covariance matrix """
-        return np.cov(m)
-
-    @staticmethod
-    def spatial_filter(R1, R2):
-        R = 0.5 * (R1 + R2)
+    def spatial_filter(self, R1, R2):
+        R = (R1 + R2)
 
         E, U = la.eig(R)
 
@@ -129,7 +125,9 @@ class CSP(MneCSP):
         S1 = dot([P, R1, P.T])
         S2 = dot([P, R2, P.T])
 
-        E1, U1 = la.eig(S1, S2)
+        E1, U1 = la.eig(S1)
+        E2, U2 = la.eig(S2)
+
         order = np.flip(np.argsort(E1), axis=0)
         E1 = E1[order]
         U1 = U1[:, order]

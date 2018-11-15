@@ -63,8 +63,9 @@ class EMD(BaseEstimator, TransformerMixin):
         elif isinstance(self.imf_picks, str):
             distances = []
             distance_func = distance_functions[self.imf_picks]
+            s = signal - imfs[-1] * int(self.subtract_residue)
+
             for imf in imfs[:-1]:
-                s = signal - imfs[-1] * int(self.subtract_residue)
                 distances.append(distance_func(s, imf))
 
             imfs = imfs[[np.argmin(distances)]]

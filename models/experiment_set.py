@@ -24,8 +24,9 @@ pd.set_option('display.width', 1000)
 
 
 param_grid = {
+    "dataset_max_size": None,
     "dataset_type": [str(t) for t in DSType.variants()],
-    "window_length": [100, 250, 500, 1000],
+    "window_length": [100, 250, 500],
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
@@ -33,7 +34,10 @@ param_grid = {
         "csp;mean_power",
         "emd;stats",
         "stats",
-        "mean_power"
+        "mean_power",
+        "wavelet;stats",
+        "wavelet;mean_power",
+        "wavelet;csp;mean_power"
     ]
 }
 
@@ -60,7 +64,8 @@ conditional_param_grid = {
     },
     "csp": {
         "kernel": ["mne", "custom"],
-        "n_components": [1, 2, 4]
+        "n_components": [1, 2, 4],
+        "mode": ["1vall", "1v1"]
     },
     "lda": {
         "solver": ["lsqr"]
@@ -71,11 +76,16 @@ conditional_param_grid = {
     "emd": {
         "n_imfs": [1, 2, 4],
         "imf_picks": ["1,2", "minkowski"],
-        "max_iter": [100, 500, 1000, 2000],
+        "max_iter": [10, 20, 100, 500, 2000],
         "subtract_residue": [True, False]
     },
     "stats": {
         "features": ["__all__", "__fast__"]
+    },
+    "wavelet": {
+        "n_dimensions": [1, 2],
+        # "wavelet": pywt.wavelist(kind="discrete"),
+        "wavelet": ["db1", "rbio6.8", "rbio2.6", "sym2", "db2", "bior2.4", "sym5"]
     }
 }
 
@@ -276,10 +286,12 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
+        "dataset_max_size": None,
         "window_length": 100,
-        "dataset_type": "none_arm/right_arm/left_foot/right_foot/left",
+        # "dataset_type": "none_arm_foot",
+        "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
         "classifier": "random_forest",
-        "preprocessor": ["emd;csp;mean_power", "emd;csp;stats", "emd;stats"],
+        "preprocessor": ["filter;csp;mean_power", "wavelet;mean_power"],
         "svm": {
             "kernel": "linear"
         },
@@ -298,7 +310,8 @@ if __name__ == '__main__':
         },
         "csp": {
             "kernel": "custom",
-            "n_components": 4
+            "n_components": 4,
+            # "mode": "1vall"
         },
         "mean_power": {
             "log": True,
@@ -307,14 +320,18 @@ if __name__ == '__main__':
             "n_imfs": 1,
             "max_imfs": 0,
             "imf_picks": "minkowski",
-            "max_iter": 500,
+            "max_iter": 10,
             "subtract_residue": True
         },
         "stats": {
             "features": "__all__"
+        },
+        "wavelet": {
+            # "n_dimensions": 2,
+            "wavelet": "bior2.4"
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=8, **params)
+    exp_set = ExperimentSet(cv_splits=16, **params)
     exp_set.multiprocessing = "cv"
     exp_set.run_experiments()

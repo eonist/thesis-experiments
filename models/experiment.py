@@ -20,6 +20,7 @@ from models.my_pipeline import CustomPipeline
 from models.neural_network import NeuralNetwork
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
+from transformers.wavelet import Wavelet
 from utils.enums import DSType
 from utils.prints import Print
 from utils.utils import avg_dict
@@ -36,6 +37,7 @@ pipeline_classes = {
     "csp": CSP,
     "filter": Filter,
     "emd": EMD,
+    "wavelet": Wavelet,
     "stats": StatisticalFeatures,
     "mean_power": MeanPower
 }
@@ -98,8 +100,8 @@ class Experiment:
         start_time = time.time()
 
         try:
-            if self.pipeline_items == ["emd", "stats", "svm"]:
-                raise Exception("emd;stats;svm should not be used together")
+            if "stats" in self.pipeline_items and "svm" in self.pipeline_items:
+                raise Exception("stats and svm should not be used together")
 
             if self.datasets is None:
                 self.datasets = list()
@@ -129,7 +131,7 @@ class Experiment:
         self.report["time"]["exp"] = (time.time() - start_time)
         self.report["accuracies"] = [r["accuracy"] for r in self.cv_reports]
         self.report["cv_splits"] = self.cv_splits
-        self.report["feature_vector_length"] = self.feature_vector_length()
+        # self.report["feature_vector_length"] = self.feature_vector_length()
         self.report["success"] = True
         self.report["dataset_lengths"] = [d.length for d in self.datasets]
 
@@ -183,6 +185,7 @@ class Experiment:
         ds_train, ds_test = dataset.split(include_val=False)
 
         start_fit_time = time.time()
+
         fit_output = pipeline.fit(ds_train.X, ds_train.y)
         cv_report["time"]["fit"] = time.time() - start_fit_time
 
@@ -197,8 +200,6 @@ class Experiment:
         cv_report["accuracy"] = accuracy
         cv_report["report"] = classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
                                                     target_names=[l.value for l in self.dataset_type.labels])
-
-        self.feature_vector_length()
 
         return cv_report
 
