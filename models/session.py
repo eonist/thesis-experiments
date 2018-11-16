@@ -6,7 +6,8 @@ import numpy as np
 import requests
 
 from config import URL, BASE_LABEL_MAP, Path, WINDOW_LENGTH
-from models.dataset import DataSet
+from models.dataset import Dataset
+from utils.prints import Print
 
 
 class Session:
@@ -56,17 +57,21 @@ class Session:
 
     def is_cached(self):
         fns = os.listdir(Path.session_cache)
-
         return self.cache_fp(only_fn=True) in fns
 
     @classmethod
-    def fetch_all(cls, only_real=False):
+    def fetch_all(cls, only_real=True, include_timeframes=False):
         params = {"real": True} if only_real else {}
 
         r = requests.get(URL.sessions, params=params)
         json_data = r.json()
 
-        return [cls.from_json(d) for d in json_data]
+        sessions = [cls.from_json(d) for d in json_data]
+
+        if include_timeframes:
+            [s.fetch_timeframes() for s in sessions]
+
+        return sessions
 
     def fetch_timeframes(self):
         if self.is_cached():
@@ -96,27 +101,24 @@ class Session:
         self.timeframes = m
         return m
 
-    def window_gen(self, window_length=WINDOW_LENGTH, plot=False):
+    def window_gen(self, window_length=WINDOW_LENGTH, allowed_labels=None):
         if self.timeframes is None:
             self.fetch_timeframes()
 
         i = random.randint(0, window_length / 2)
         n_timeframes = np.shape(self.timeframes)[0]
 
-        # image = np.zeros([100, n_timeframes])
-
         while i < n_timeframes - window_length:
             window = self.timeframes[i:i + window_length, :]
-            # image[:, i:i + window_length] += 0.3
 
-            yield window
+            if allowed_labels is not None:
+                label = int(max(window[:, -1]))
+                if label in allowed_labels:
+                    yield window
+            else:
+                yield window
+
             i += window_length + random.randint(-window_length / 2, window_length / 2)
-
-        # if plot:
-        #     Print.point("Show image")
-        #     image[:, 0] = 1
-        #     imgplot = plt.imshow(image, cmap="binary")
-        #     plt.show()
 
     def dataset(self, windows):
         n_samples = len(windows)
@@ -128,15 +130,13 @@ class Session:
 
         for i, window in enumerate(windows):
             X[i] = window[:, 0:n_channels].T
-
-            unique_labels = set(window[:, -1])
             y[i] = int(max(window[:, -1]))
 
-        return DataSet(X, y)
+        return Dataset(X, y)
 
     @classmethod
     def combined_dataset(cls, ids, window_length):
-        dataset = DataSet.empty()
+        dataset = Dataset.empty()
         for id in ids:
             session = cls.from_api(id)
             windows = list(session.window_gen(window_length=window_length))
@@ -151,12 +151,14 @@ class Session:
         return cls.combined_dataset(ids, window_length=window_length)
 
     @classmethod
-    def full_dataset_gen(cls, window_length, count=1):
-        sessions = cls.fetch_all(only_real=True)
-        [s.fetch_timeframes() for s in sessions]
+    def full_dataset_gen(cls, window_length, count=1, sessions=None):
+
+        if sessions is None:
+            Print.point("Fetching sessions!")
+            sessions = Session.fetch_all(only_real=True, include_timeframes=True)
 
         for _ in range(count):
-            dataset = DataSet.empty()
+            dataset = Dataset.empty()
             for session in sessions:
                 windows = list(session.window_gen(window_length=window_length))
                 dataset = dataset + session.dataset(windows=windows)

@@ -5,7 +5,7 @@ from utils.enums import DSType
 from utils.prints import Print
 
 
-class DataSet:
+class Dataset:
     split_ratio = (0.6, 0.8)
 
     def __init__(self, X, y, is_child=False, label_map=BASE_LABEL_MAP):
@@ -37,7 +37,7 @@ class DataSet:
         res = []
 
         for X_part, Y_part in zip(X_parts, y_parts):
-            res.append(DataSet(X_part, Y_part, is_child=True, label_map=self.label_map))
+            res.append(Dataset(X_part, Y_part, is_child=True, label_map=self.label_map))
 
         return res
 
@@ -50,7 +50,7 @@ class DataSet:
             p = [self.y == label]
             y_l = self.y[p]
             X_l = self.X[p]
-            datasets[label] = (DataSet(X_l, y_l))
+            datasets[label] = (Dataset(X_l, y_l))
 
     def trim(self, new_length):
         if self.length > new_length:
@@ -88,7 +88,7 @@ class DataSet:
 
         p = [y_val in ds_type.base_integer_list for y_val in self.y]
 
-        ds = DataSet(self.X[p], self.y[p])
+        ds = Dataset(self.X[p], self.y[p])
         ds.y = ds_type.adjust_y(ds.y)
         ds.label_map = ds_type.label_map
 
@@ -98,13 +98,13 @@ class DataSet:
         labels, count = np.unique(self.y, return_counts=True)
         min_count = min(count)
 
-        norm_ds = DataSet.empty()
+        norm_ds = Dataset.empty()
         for label in labels:
             p = [self.y == label]
             y_l = self.y[p]
             X_l = self.X[p]
 
-            ds_l = DataSet(X_l, y_l)
+            ds_l = Dataset(X_l, y_l)
             ds_l.shuffle()
             ds_l.trim(min_count)
 
@@ -113,6 +113,9 @@ class DataSet:
         norm_ds.shuffle()
         return norm_ds
 
+    def copy(self):
+        return Dataset(self.X, self.y, is_child=self.is_child, label_map=self.is_child)
+
     def label_str(self, label_id):
         for (key, val) in self.label_map.items():
             if val == label_id:
@@ -120,10 +123,10 @@ class DataSet:
 
     def __add__(self, other):
         if len(self.X) != len(self.y) or len(other.X) != len(other.y):
-            raise Exception("Mismatch in X and y length in DataSet")
+            raise Exception("Mismatch in X and y length in Dataset")
 
         if self.label_map != other.label_map:
-            raise Exception("Cannot add DataSets with different label_maps")
+            raise Exception("Cannot add Datasets with different label_maps")
 
         if self.length == 0: return other
         if other.length == 0: return self
@@ -132,4 +135,4 @@ class DataSet:
         y = np.concatenate((self.y, other.y))
         is_child = (self.is_child or other.is_child)
 
-        return DataSet(X, y, is_child, label_map=self.label_map)
+        return Dataset(X, y, is_child, label_map=self.label_map)

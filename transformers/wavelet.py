@@ -2,8 +2,6 @@ import numpy as np
 import pywt
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from utils.prints import Print
-
 
 class Wavelet(BaseEstimator, TransformerMixin):
     def __init__(self, n_dimensions=1, wavelet='db1'):
@@ -53,9 +51,6 @@ class Wavelet(BaseEstimator, TransformerMixin):
 
             cAshape = np.shape(cA)
             cDshape = np.shape(cD)
-
-            Print.data(cAshape)
-            Print.data(cDshape)
 
             self.sample_shape = (2 * len(sample), cAshape[0])
 

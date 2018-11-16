@@ -9,9 +9,9 @@ import pandas as pd
 from tqdm import tqdm
 
 from config import CV_SPLITS
+from models.dataset_collection import DatasetCollection
 from models.experiment import Experiment
 from models.report import Report
-from models.session import Session
 from utils.enums import DSType
 from utils.prints import Print
 from utils.utils import datestamp_str, flatten_dict
@@ -26,7 +26,7 @@ pd.set_option('display.width', 1000)
 param_grid = {
     "dataset_max_size": None,
     "dataset_type": [str(t) for t in DSType.variants()],
-    "window_length": [100, 250, 500],
+    "window_length": [50, 100, 250],
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
@@ -201,27 +201,17 @@ class ExperimentSet:
         time.sleep(1)
         start_run_time = time.time()
 
-        if isinstance(self.params["dataset_type"], str) and isinstance(self.params["window_length"], int):
-            datasets = []
-            ds_gen = Session.full_dataset_gen(count=self.cv_splits, window_length=self.params["window_length"])
-
-            for ds in tqdm(ds_gen, total=self.cv_splits, desc="Fetching DataSets"):
-                ds = ds.reduced_dataset(self.params["dataset_type"])
-                ds = ds.normalize()
-                ds.shuffle()
-
-                datasets.append(ds)
-        else:
-            datasets = None
+        ds_collection = DatasetCollection.from_params(self.params, self.cv_splits)
 
         if self.multiprocessing == "exp":
-            self.run_multi(datasets)
+            self.run_multi(ds_collection)
         else:
             for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
                 exp = Experiment.from_params(exp_params)
                 exp.cv_splits = self.cv_splits
-                exp.datasets = datasets
-                exp.multiprocessing = self.multiprocessing == "cv"
+                exp.set_datasets(ds_collection)
+
+                exp.multiprocessing = (self.multiprocessing == "cv")
 
                 exp.run()
                 self.exp_reports.append(exp.report)
@@ -238,13 +228,13 @@ class ExperimentSet:
         report.generate()
 
     @staticmethod
-    def worker(i, working_queue, output_q, cv_splits, datasets):
+    def worker(i, working_queue, output_q, cv_splits, ds_collection):
         while True:
             try:
                 exp_params = working_queue.get_nowait()
                 exp = Experiment.from_params(exp_params)
                 exp.cv_splits = cv_splits
-                exp.datasets = datasets
+                exp.set_datasets(ds_collection)
 
                 Print.progress("{}: Running Experiment".format(i))
                 exp.run()
@@ -255,7 +245,7 @@ class ExperimentSet:
 
         return
 
-    def run_multi(self, datasets):
+    def run_multi(self, ds_collection):
         working_q = mp.Queue()
         output_q = mp.Queue()
 
@@ -265,7 +255,8 @@ class ExperimentSet:
         n_workers = np.min([mp.cpu_count(), len(self.exp_params_list)])
 
         Print.info("Using {} workers".format(n_workers))
-        processes = [mp.Process(target=self.worker, args=(i, working_q, output_q, self.cv_splits, datasets)) for i in
+        processes = [mp.Process(target=self.worker, args=(i, working_q, output_q, self.cv_splits, ds_collection)) for i
+                     in
                      range(n_workers)]
 
         for proc in processes:
@@ -287,11 +278,11 @@ class ExperimentSet:
 if __name__ == '__main__':
     params = {
         "dataset_max_size": None,
-        "window_length": 100,
-        # "dataset_type": "none_arm_foot",
-        "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
+        # "window_length": [10, 50],
+        # "dataset_type": ["arm_foot", "none_event"],
+        # "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
         "classifier": "random_forest",
-        "preprocessor": ["filter;csp;mean_power", "wavelet;mean_power"],
+        "preprocessor": "wavelet;mean_power",
         "svm": {
             "kernel": "linear"
         },
@@ -311,7 +302,7 @@ if __name__ == '__main__':
         "csp": {
             "kernel": "custom",
             "n_components": 4,
-            # "mode": "1vall"
+            "mode": "1vall"
         },
         "mean_power": {
             "log": True,
@@ -327,11 +318,11 @@ if __name__ == '__main__':
             "features": "__all__"
         },
         "wavelet": {
-            # "n_dimensions": 2,
+            "n_dimensions": 2,
             "wavelet": "bior2.4"
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=16, **params)
+    exp_set = ExperimentSet(cv_splits=8, **params)
     exp_set.multiprocessing = "cv"
     exp_set.run_experiments()

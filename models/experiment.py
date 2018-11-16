@@ -57,6 +57,7 @@ class Experiment:
         self.multiprocessing = False
 
         self.datasets = None
+        self.sessions = None
         self.cv_reports = []
 
         self.report = dict(
@@ -77,11 +78,8 @@ class Experiment:
         raw_params = json.loads(json_params)
         return cls.from_params(raw_params)
 
-    def hex_string(self):
-        json_params = json.dumps(self.raw_params, sort_keys=True)
-        bytes = json_params.encode()
-        res = binascii.hexlify(bytes)
-        return res
+    def set_datasets(self, ds_collection):
+        self.datasets = ds_collection.datasets(self.dataset_type, self.window_length)
 
     def __str__(self):
         return "{}: {}".format(self.dataset_type, " -> ".join(self.pipeline_items))
@@ -96,7 +94,7 @@ class Experiment:
 
         return CustomPipeline(pipeline_input)
 
-    def run(self):
+    def run(self, sessions=None):
         start_time = time.time()
 
         try:
@@ -105,7 +103,7 @@ class Experiment:
 
             if self.datasets is None:
                 self.datasets = list()
-                for i in tqdm(range(self.cv_splits), desc="Fetching DataSets"):
+                for i in tqdm(range(self.cv_splits), desc="Fetching Datasets"):
                     ds = Session.full_dataset(window_length=self.window_length)
                     ds = ds.reduced_dataset(self.dataset_type)
                     ds = ds.normalize()
