@@ -94,7 +94,7 @@ class Experiment:
 
         return CustomPipeline(pipeline_input)
 
-    def run(self, sessions=None):
+    def run(self):
         start_time = time.time()
 
         try:
@@ -116,6 +116,7 @@ class Experiment:
                 for ds in tqdm(self.datasets, desc="Cross validating"):
                     self.cv_reports.append(self.run_cv(ds))
 
+            self.report["success"] = True
         except Exception as e:
             print("")
             Print.warning("Skipping experiment: {}".format(e))
@@ -130,7 +131,6 @@ class Experiment:
         self.report["accuracies"] = [r["accuracy"] for r in self.cv_reports]
         self.report["cv_splits"] = self.cv_splits
         # self.report["feature_vector_length"] = self.feature_vector_length()
-        self.report["success"] = True
         self.report["dataset_lengths"] = [d.length for d in self.datasets]
 
     def run_multi(self):
@@ -178,9 +178,8 @@ class Experiment:
         if pipeline is None:
             pipeline = self.pipeline
 
-        cv_report = {"time": {}}
-
         ds_train, ds_test = dataset.split(include_val=False)
+        cv_report = {"time": {}}
 
         start_fit_time = time.time()
 
@@ -193,7 +192,7 @@ class Experiment:
 
         accuracy = pipeline.score(ds_test.X, ds_test.y)
 
-        cv_report["kappa"] = self.mod_kappa(ds_train.y, accuracy)
+        cv_report["kappa"] = self.kappa(ds_train.y, accuracy)
         cv_report["confusion_matrix"] = confusion_matrix(ds_test.y, predictions)
         cv_report["accuracy"] = accuracy
         cv_report["report"] = classification_report(y_true=ds_test.y, y_pred=predictions, output_dict=True,
@@ -205,6 +204,13 @@ class Experiment:
     def mod_kappa(y_train, accuracy):
         unique, counts = np.unique(y_train, return_counts=True)
         p_e = counts[0] / len(y_train)
+
+        return (accuracy - p_e) / (1 - p_e)
+
+    @staticmethod
+    def kappa(y_train, accuracy):
+        unique = np.unique(y_train)
+        p_e = 1 / len(unique)
 
         return (accuracy - p_e) / (1 - p_e)
 

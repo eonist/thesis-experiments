@@ -1,9 +1,6 @@
-import time
-
 from tqdm import tqdm
 
 from models.session import Session
-from utils.prints import Print
 
 
 class DatasetCollection:
@@ -18,10 +15,7 @@ class DatasetCollection:
         self.count = len(window_lengths) * len(dataset_types) * cv_splits
         self.value = None
 
-        start_time = time.time()
         self._create_datasets()
-
-        Print.success("Created DatasetCollection in {}s".format(round(time.time() - start_time, 1)))
 
     @classmethod
     def from_params(cls, params, cv_splits):

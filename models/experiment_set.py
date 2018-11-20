@@ -24,7 +24,6 @@ pd.set_option('display.width', 1000)
 
 
 param_grid = {
-    "dataset_max_size": None,
     "dataset_type": [str(t) for t in DSType.variants()],
     "window_length": [50, 100, 250],
     "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
@@ -68,7 +67,7 @@ conditional_param_grid = {
         "mode": ["1vall", "1v1"]
     },
     "lda": {
-        "solver": ["lsqr"]
+        "solver": "lsqr"
     },
     "mean_power": {
         "log": [True, False]
@@ -226,6 +225,7 @@ class ExperimentSet:
 
         report = Report(self, self.exp_reports)
         report.generate()
+        report.generate_latex()
 
     @staticmethod
     def worker(i, working_queue, output_q, cv_splits, ds_collection):
@@ -277,21 +277,16 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "dataset_max_size": None,
-        # "window_length": [10, 50],
-        # "dataset_type": ["arm_foot", "none_event"],
-        # "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
-        "classifier": "random_forest",
-        "preprocessor": "wavelet;mean_power",
+        "window_length": [10, 100, 250],
+        "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
+        "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
+        "preprocessor": "filter;csp;mean_power",
         "svm": {
-            "kernel": "linear"
-        },
-        "lda": {
-            "solver": "lsqr"
+            "kernel": ["linear", "rbf", "sigmoid"]
         },
         "random_forest": {
             "n_estimators": 100,
-            "criterion": "entropy"
+            "criterion": ["gini", "entropy"]
         },
         "filter": {
             "kernel": "mne",
@@ -302,24 +297,10 @@ if __name__ == '__main__':
         "csp": {
             "kernel": "custom",
             "n_components": 4,
-            "mode": "1vall"
+            "mode": ["1vall", "1v1"]
         },
         "mean_power": {
             "log": True,
-        },
-        "emd": {
-            "n_imfs": 1,
-            "max_imfs": 0,
-            "imf_picks": "minkowski",
-            "max_iter": 10,
-            "subtract_residue": True
-        },
-        "stats": {
-            "features": "__all__"
-        },
-        "wavelet": {
-            "n_dimensions": 2,
-            "wavelet": "bior2.4"
         }
     }
 

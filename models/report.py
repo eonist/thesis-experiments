@@ -105,6 +105,45 @@ class Report:
         with open(fp, 'w+') as file:
             file.write(res)
 
+    def generate_latex(self):
+        create_path_if_not_existing(Path.exp_logs)
+
+        res = ""
+        fn = self.filename("exp_set_latex", "md")
+        Print.data(fn)
+        fp = "/".join([Path.exp_logs, fn])
+        relevant_keys = list(set(self.exp_set.relevant_keys))
+        exp_summary = np.empty(shape=[len(self.exp_reports), 3 + len(relevant_keys)], dtype="U25")
+
+        for i, exp_report in enumerate(self.exp_reports):
+            flat_params = flatten_dict(exp_report["raw_params"])
+            relevant_params = np.empty(shape=[len(relevant_keys)], dtype="U25")
+
+            for j, key in enumerate(relevant_keys):
+                if key in flat_params:
+                    relevant_params[j] = flat_params[key]
+                else:
+                    relevant_params[j] = "-"
+
+            acc_string = "{}%".format(np.round(100 * exp_report["accuracy"], 1))
+            kappa_string = "{}".format(np.round(exp_report["kappa"], 3))
+            time_string = "{}s".format(np.round(exp_report["time"]["exp"], 2))
+
+            exp_summary[i, :3] = [acc_string, kappa_string, time_string]
+            exp_summary[i, 3:] = relevant_params
+
+        df_perf1 = pd.DataFrame(exp_summary, columns=["Accuracy", "Kappa", "Avg Time"] + relevant_keys,
+                                copy=True)
+        df_perf1.sort_values(by=["Accuracy"], axis=0, ascending=False, inplace=True)
+        res += tabulate(df_perf1, tablefmt="pipe", headers="keys", showindex=False) + "\n"
+
+        res += "<!---\nResults in LaTeX\n"
+
+        res += tabulate(df_perf1, tablefmt="latex", headers="keys", showindex=False) + "\n"
+
+        with open(fp, 'w+') as file:
+            file.write(res)
+
     # <--- HELPER METHODS --->
 
     def relevant_params(self, flat_params):

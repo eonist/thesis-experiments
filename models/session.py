@@ -154,7 +154,7 @@ class Session:
     def full_dataset_gen(cls, window_length, count=1, sessions=None):
 
         if sessions is None:
-            Print.point("Fetching sessions!")
+            Print.info("Fetching sessions")
             sessions = Session.fetch_all(only_real=True, include_timeframes=True)
 
         for _ in range(count):

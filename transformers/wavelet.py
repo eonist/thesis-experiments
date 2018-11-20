@@ -2,11 +2,13 @@ import numpy as np
 import pywt
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from models.session import Session
+from utils.prints import Print
+
 
 class Wavelet(BaseEstimator, TransformerMixin):
     def __init__(self, n_dimensions=1, wavelet='db1'):
         self.n_dimensions = n_dimensions
-        print(wavelet)
         self.wavelet = pywt.Wavelet(wavelet)
         self.sample_shape = None
 
@@ -63,3 +65,28 @@ class Wavelet(BaseEstimator, TransformerMixin):
             self.sample_shape = np.shape(res)
 
         return self
+
+
+if __name__ == '__main__':
+
+    ds = list(Session.full_dataset_gen(window_length=10))[0]
+
+    indices = []
+
+    for class_idx in [0, 1]:
+        for i, y in enumerate(ds.y):
+            if y == class_idx:
+                indices.append(i)
+                break
+
+    print(indices)
+
+    wavelet = Wavelet(n_dimensions=1, wavelet='db1')
+    wavelet.fit(ds.X)
+
+    for i in indices:
+        sample = ds.X[i]
+        sample_t = wavelet._transform_sample(sample)
+
+        Print.pandas(sample)
+        Print.pandas(sample_t)
