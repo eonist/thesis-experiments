@@ -12,22 +12,17 @@ distance_functions = {
 
 
 class EMD(BaseEstimator, TransformerMixin):
-    def __init__(self, n_imfs=0, max_imfs=0, imf_picks=None, max_iter=2000, subtract_residue=False):
+    def __init__(self, mode, n_imfs=1, max_iter=2000, subtract_residue=False):
+        self.mode = mode
 
-        if isinstance(imf_picks, list):
-            self.imf_picks = imf_picks
-            self.n_imfs = len(imf_picks)
-        elif isinstance(imf_picks, str) and ',' not in imf_picks:
-            self.imf_picks = imf_picks
+        if self.mode == "set_max":
+            self.max_imfs = n_imfs
             self.n_imfs = n_imfs
-        elif isinstance(imf_picks, str):
-            self.imf_picks = [int(t) for t in imf_picks.split(",")]
-            self.n_imfs = len(self.imf_picks)
+        elif self.mode == "minkowski":
+            self.max_imfs = 0
+            self.n_imfs = n_imfs
         else:
-            self.imf_picks = None
-            self.n_imfs = n_imfs
-
-        self.max_imfs = max_imfs
+            raise Exception("Invalid EMD mode: {}".format(self.mode))
 
         self.shape = None
         self.max_iter = max_iter
@@ -55,23 +50,18 @@ class EMD(BaseEstimator, TransformerMixin):
         decomposer = pyhht.EMD(signal, n_imfs=self.max_imfs, maxiter=self.max_iter)
         imfs = decomposer.decompose()
 
-        if len(imfs) == 2:
+        if self.mode == "set_max":
             imfs = imfs[:-1]
-        elif self.imf_picks == "n_imfs":
-            imfs = imfs[:-1]
-            imfs = imfs[:self.n_imfs]
-        elif isinstance(self.imf_picks, str):
+        elif self.mode == "minkowski":
             distances = []
-            distance_func = distance_functions[self.imf_picks]
             s = signal - imfs[-1] * int(self.subtract_residue)
 
             for imf in imfs[:-1]:
-                distances.append(distance_func(s, imf))
+                distances.append(minkowski(s, imf))
 
-            imfs = imfs[[np.argmin(distances)]]
-        else:
-            imf_picks = [idx for idx in self.imf_picks if idx < len(imfs)]
-            imfs = imfs[imf_picks]
+            idx = np.argpartition(distances, np.min([len(distances) - 1, self.n_imfs]))
+
+            imfs = imfs[idx[:self.n_imfs]]
 
         imfs_zeros = np.zeros([window_length, self.n_imfs])
         imfs_zeros[:, :len(imfs)] = imfs.T

@@ -20,7 +20,7 @@ from models.my_pipeline import CustomPipeline
 from models.neural_network import NeuralNetwork
 from models.session import Session
 from transformers import Filter, CSP, StatisticalFeatures, MeanPower, EMD
-from transformers.wavelet import Wavelet
+from transformers.dwt import DWT
 from utils.enums import DSType
 from utils.prints import Print
 from utils.utils import avg_dict
@@ -28,7 +28,7 @@ from utils.utils import avg_dict
 pipeline_classes = {
     "svm": svm.SVC,
     "lda": LinearDiscriminantAnalysis,
-    "random_forest": RandomForestClassifier,
+    "rfc": RandomForestClassifier,
     "bagging": BaggingClassifier,
     "tree": DecisionTreeClassifier,
     "knn": KNeighborsClassifier,
@@ -37,7 +37,7 @@ pipeline_classes = {
     "csp": CSP,
     "filter": Filter,
     "emd": EMD,
-    "wavelet": Wavelet,
+    "dwt": DWT,
     "stats": StatisticalFeatures,
     "mean_power": MeanPower
 }
@@ -50,12 +50,15 @@ class Experiment:
         self.raw_params = kwargs.get('raw_params', dict())
         self.dataset_type = DSType.from_string(kwargs["dataset_type"])
         self.window_length = kwargs["window_length"]
+        self.sample_trim = kwargs.get("sample_trim", "0;3")
+        self.ds_split_by = kwargs.get("ds_split_by", "session")
 
         self.pipeline_items = pipeline_items
         self.pipeline = self.create_pipeline()
 
         self.multiprocessing = False
 
+        self.index = None
         self.datasets = None
         self.sessions = None
         self.cv_reports = []
@@ -79,7 +82,7 @@ class Experiment:
         return cls.from_params(raw_params)
 
     def set_datasets(self, ds_collection):
-        self.datasets = ds_collection.datasets(self.dataset_type, self.window_length)
+        self.datasets = ds_collection.datasets(self.dataset_type, self.window_length, self.sample_trim)
 
     def __str__(self):
         return "{}: {}".format(self.dataset_type, " -> ".join(self.pipeline_items))
@@ -95,12 +98,12 @@ class Experiment:
         return CustomPipeline(pipeline_input)
 
     def run(self):
+        print("\n\n")
+        Print.time("Running Experiment {}".format("" if self.index is None else self.index))
+
         start_time = time.time()
 
         try:
-            if "stats" in self.pipeline_items and "svm" in self.pipeline_items:
-                raise Exception("stats and svm should not be used together")
-
             if self.datasets is None:
                 self.datasets = list()
                 for i in tqdm(range(self.cv_splits), desc="Fetching Datasets"):
@@ -142,6 +145,7 @@ class Experiment:
 
         n_workers = np.min([mp.cpu_count(), self.cv_splits])
 
+        print("")
         Print.info("Using {} workers".format(n_workers))
         processes = [mp.Process(target=self.worker, args=(i, working_q, output_q, self.pipeline)) for i in
                      range(n_workers)]
@@ -178,7 +182,13 @@ class Experiment:
         if pipeline is None:
             pipeline = self.pipeline
 
-        ds_train, ds_test = dataset.split(include_val=False)
+        if self.ds_split_by == "session":
+            ds_train, ds_test = dataset.split_by_session()
+        elif self.ds_split_by == "user":
+            ds_train, ds_test = dataset.split_by_user()
+        else:
+            ds_train, ds_test = dataset.split_random()
+
         cv_report = {"time": {}}
 
         start_fit_time = time.time()
@@ -199,6 +209,28 @@ class Experiment:
                                                     target_names=[l.value for l in self.dataset_type.labels])
 
         return cv_report
+
+    def create_classifier(self):
+        if self.datasets is None:
+            Print.info("Fetching dataset")
+            self.datasets = list()
+            ds = Session.full_dataset(window_length=self.window_length)
+            ds = ds.reduced_dataset(self.dataset_type)
+            ds = ds.normalize()
+            ds.shuffle()
+            self.datasets.append(ds)
+
+        pipeline = self.create_pipeline()
+        Print.data(pipeline)
+
+        ds = self.datasets[0]
+        ds_train, ds_test = ds.split_random()
+
+        fit_output = pipeline.fit(ds_train.X, ds_train.y)
+        accuracy = pipeline.score(ds_test.X, ds_test.y)
+        Print.info("Accuracy: {}".format(accuracy))
+
+        return pipeline
 
     @staticmethod
     def mod_kappa(y_train, accuracy):

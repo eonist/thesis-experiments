@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 # -- SYMBOLS --
+from datetime import datetime
 from functools import wraps
 
 import numpy as np
@@ -13,6 +14,8 @@ import pandas as pd
 from pygments import highlight
 from pygments.formatters.terminal256 import Terminal256Formatter
 from pygments.lexers.data import JsonLexer
+
+from utils.utils import timestamp_str
 
 START = "✅"
 MIDDLE = "🌠"
@@ -89,6 +92,11 @@ class Print:
     def json(data):
         Print.data(data, one_line=False)
 
+    @staticmethod
+    def time(text):
+        tm = datetime.now()
+        flag_print("🕐", "[{}] {}".format(timestamp_str(tm), text))
+
     # -- FLAG PRINTS --
     @staticmethod
     def point(text):
@@ -121,6 +129,10 @@ class Print:
     @staticmethod
     def stop(text):
         flag_print("🛑", text)
+
+    @staticmethod
+    def good(text):
+        flag_print("🎉", text)
 
 
 # [-- DECORATOR METHODS --]

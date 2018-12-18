@@ -1,2 +1,0 @@
-class SystemBuilder:
-    pass

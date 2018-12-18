@@ -5,12 +5,11 @@ import os
 import pathlib
 import random
 import string
-from queue import Empty
 
 import numpy as np
 
-from config import TIME_FORMAT, DATE_FILE_FORMAT, DATE_FORMAT, DECIMALS
-from utils.prints import Print
+from config import TIME_FORMAT, DATE_FILE_FORMAT, DATE_FORMAT, DECIMALS, API_TO_LABEL_MAP, BASE_LABEL_MAP
+from utils.enums import DSLabel
 
 
 def func_name():
@@ -50,6 +49,35 @@ def np_append(arr, value):
         return np.array(value)
     else:
         return np.vstack([arr, value])
+
+
+def max_elem_length(arr):
+    temp_max_length = 0
+    if isinstance(arr[0], (list, np.ndarray)):
+        for elem in arr:
+            res = max_elem_length(elem)
+            if res > temp_max_length:
+                temp_max_length = res
+    else:
+        for elem in arr:
+            length = len(str(elem))
+            if length > temp_max_length:
+                temp_max_length = length
+
+    return temp_max_length
+
+
+def format_array(arr):
+    np_array = np.asarray(arr)
+
+    dim = len(np.shape(np_array))
+
+    if dim == 1:
+        elems = ['\"{}\"'.format(e) if isinstance(e, (str, DSLabel)) else str(e) for e in np_array]
+        return "[{}]".format(",".join(elems))
+    elif dim == 2:
+        rows_string = ",\n".join([format_array(row) for row in np_array])
+        return "[\n{}\n]".format(rows_string)
 
 
 def notify(title="Notification", text=""):
@@ -156,18 +184,37 @@ def round_dict(d, decimals=DECIMALS):
     return res
 
 
-# <--- MULTIPROCESSING --->
+def api_label_to_val(api_label):
+    api_label = api_label.strip().lower()
+    base_label = API_TO_LABEL_MAP[api_label]
+    label_val = BASE_LABEL_MAP[base_label]
 
-def worker(i, working_queue, output_q, func):
-    while True:
-        try:
-            job = working_queue.get_nowait()
-            Print.progress("Worker {} is doing a job".format(i))
-            output_q.put(func(job))
-        except Empty:
-            break
+    return label_val
 
-    return
+
+def as_list(elem, length=1):
+    is_list = isinstance(elem, list) or isinstance(elem, np.ndarray)
+    return elem if is_list else [elem] * length
+
+
+def points_around(points, distance):
+    if distance == 0:
+        return np.array([])
+
+    if isinstance(points, int):
+        return np.arange(points - distance, points + distance + 1, 1)
+    elif isinstance(points, (list, np.ndarray)):
+        return np.concatenate([points_around(p, distance) for p in points])
+
+
+def find_nearest(array, value, return_index=False):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+
+    if return_index:
+        return idx
+    else:
+        return array[idx]
 
 
 if __name__ == '__main__':

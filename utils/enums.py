@@ -7,16 +7,16 @@ from config import BASE_LABEL_MAP
 
 
 class DSLabel(enum.Enum):
-    NONE = "none"
-    ANY_EVENT = "event"
-    ARM = "arm"
-    FOOT = "foot"
-    LEFT = "left"
-    RIGHT = "right"
-    ARM_LEFT = "arm/left"
-    ARM_RIGHT = "arm/right"
-    FOOT_LEFT = "foot/left"
-    FOOT_RIGHT = "foot/right"
+    NONE = "N"
+    ANY_EVENT = "E"
+    ARM = "A"
+    FOOT = "F"
+    LEFT = "L"
+    RIGHT = "R"
+    ARM_LEFT = "LA"
+    ARM_RIGHT = "RA"
+    FOOT_LEFT = "LF"
+    FOOT_RIGHT = "RF"
 
     def __str__(self):
         return self.value
@@ -28,7 +28,7 @@ class DSLabel(enum.Enum):
         else:
             res = []
             for key, val in BASE_LABEL_MAP.items():
-                if self.value == key or self.value in key.split("/"):
+                if self.value == key or self.value in list(key):
                     res.append(val)
 
             return res
@@ -43,6 +43,8 @@ class DSLabel(enum.Enum):
 
 
 class DSType:
+    separator = "-"
+
     def __init__(self, labels):
         labels = [DSLabel(l) for l in labels]
 
@@ -54,7 +56,7 @@ class DSType:
                 raise Exception("DSType has overlap between classes")
 
     def __str__(self):
-        return "_".join([l.value for l in self.labels])
+        return self.separator.join([l.value for l in self.labels])
 
     def __hash__(self):
         return hash(str(self))
@@ -65,18 +67,18 @@ class DSType:
     @classmethod
     def variants(cls):
         return [
-            cls(["none", "event"]),
-            cls(["arm", "foot"]),
-            cls(["none", "arm", "foot"]),
-            cls(["left", "right"]),
-            cls(["arm/left", "arm/right"]),
-            cls(["foot/left", "foot/right"]),
-            cls(["none", "arm/left", "arm/right", "foot/left", "foot/right"])
+            cls(["N", "E"]),
+            cls(["A", "F"]),
+            cls(["N", "A", "F"]),
+            cls(["L", "R"]),
+            cls(["LA", "RA"]),
+            cls(["LF", "RF"]),
+            cls(["N", "LA", "RA", "LF", "RF"])
         ]
 
     @classmethod
     def from_string(cls, string):
-        tokens = string.split("_")
+        tokens = string.split(cls.separator)
         return cls([DSLabel(t) for t in tokens])
 
     @property
@@ -117,14 +119,3 @@ class DSType:
                 res.append(y_new)
 
         return np.array(res)
-
-
-if __name__ == '__main__':
-    ds_type = DSType(["none", "arm", "foot"])
-
-    y = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4]
-
-    new_y = ds_type.adjust_y(y)
-
-    print(ds_type.label_map)
-    print(new_y)

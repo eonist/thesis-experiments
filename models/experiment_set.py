@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from config import CV_SPLITS
+from config import CV_SPLITS, Path
 from models.dataset_collection import DatasetCollection
 from models.experiment import Experiment
 from models.report import Report
@@ -24,9 +24,11 @@ pd.set_option('display.width', 1000)
 
 
 param_grid = {
-    "dataset_type": [str(t) for t in DSType.variants()],
     "window_length": [50, 100, 250],
-    "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
+    "dataset_type": [str(t) for t in DSType.variants()],
+    "sample_trim": ["0;0", "0;1", "0;2", "0;3"],
+    "ds_split_by": ["session", "user", "random"],
+    "classifier": ["svm", "lda", "rfc", "bagging", "tree", "knn", "gaussian"],
     "preprocessor": [
         "filter;csp;mean_power",
         "emd;csp;mean_power",
@@ -34,9 +36,9 @@ param_grid = {
         "emd;stats",
         "stats",
         "mean_power",
-        "wavelet;stats",
-        "wavelet;mean_power",
-        "wavelet;csp;mean_power"
+        "dwt;stats",
+        "dwt;mean_power",
+        "dwt;csp;mean_power"
     ]
 }
 
@@ -51,7 +53,7 @@ conditional_param_grid = {
         "n_layers": [3, 5, 10],
         "start_units": [100, 50, 20, 10]
     },
-    "random_forest": {
+    "rfc": {
         "n_estimators": [1, 10, 100],
         "criterion": ["gini", "entropy"]
     },
@@ -73,16 +75,17 @@ conditional_param_grid = {
         "log": [True, False]
     },
     "emd": {
-        "n_imfs": [1, 2, 4],
-        "imf_picks": ["1,2", "minkowski"],
-        "max_iter": [10, 20, 100, 500, 2000],
+        "mode": ["set_max", "minkowski"],
+        "n_imfs": [1, 2],
+        "max_iter": [10, 500, 2000],
         "subtract_residue": [True, False]
     },
     "stats": {
-        "features": ["__all__", "__fast__"]
+        "features": ["__all__", "__fast__"],
+        "splits": 1
     },
-    "wavelet": {
-        "n_dimensions": [1, 2],
+    "dwt": {
+        "dim": [1, 2],
         # "wavelet": pywt.wavelist(kind="discrete"),
         "wavelet": ["db1", "rbio6.8", "rbio2.6", "sym2", "db2", "bior2.4", "sym5"]
     }
@@ -95,25 +98,53 @@ class ExperimentSet:
         self.init_time = datetime.datetime.now()
         self.exp_params_list = []
         self.exp_reports = []
+        self.best_exp = None
 
         self.description = description
         self.hypothesis = hypothesis
 
         self.run_time = None
         self.multiprocessing = None
+        self.save_best = kwargs.get('save_best', False)
 
         self.cv_splits = cv_splits
 
         self.relevant_keys = []
+        self.pipeline_items = []
 
         self.create_experiment_params()
 
     def filename(self, prefix, suffix):
         return "{}_{}.{}".format(prefix, datestamp_str(self.init_time, file=True), suffix)
 
+    def reproduction_params(self, as_string=False):
+        params = {}
+
+        for key in param_grid.keys():
+            if key in self.params:
+                params[key] = self.params[key]
+            else:
+                params[key] = param_grid[key]
+
+        for key in conditional_param_grid.keys():
+            if key in self.pipeline_items:
+                params[key] = {}
+
+                if key in self.params:
+                    for inner_key in conditional_param_grid[key]:
+                        if inner_key in self.params[key]:
+                            params[key][inner_key] = self.params[key][inner_key]
+                        else:
+                            params[key][inner_key] = conditional_param_grid[key][inner_key]
+                else:
+                    params[key] = conditional_param_grid[key]
+
+        return params
+
     # <--- EXPERIMENT GENERATION --->
 
     def create_experiment_params(self):
+        Print.point("Generating Experiments")
         for key in param_grid.keys():
             if key not in self.params:
                 self.params[key] = param_grid[key]
@@ -123,6 +154,7 @@ class ExperimentSet:
         for params in exp_params_list:
             pipeline_items = params["preprocessor"].split(";")
             pipeline_items.append(params["classifier"])
+            self.pipeline_items = list(set(self.pipeline_items + pipeline_items))
 
             for key, val in conditional_param_grid.items():
                 key = key
@@ -177,11 +209,11 @@ class ExperimentSet:
                         new_params[key] = option
                         res += self.recurse_flatten(new_params)
                     break
-
                 elif isinstance(val, dict):
                     for val_key, val_val in val.items():
                         if isinstance(val_val, list):
-                            self.relevant_keys.append("{}__{}".format(key, val_key))
+                            if key in self.pipeline_items:
+                                self.relevant_keys.append("{}__{}".format(key, val_key))
                             found_list = True
                             for option in val_val:
                                 new_params = copy.deepcopy(params)
@@ -196,27 +228,39 @@ class ExperimentSet:
 
     # <--- EXPERIMENT EXECUTION --->
 
-    def run_experiments(self):
+    def run_experiments(self, fast_datasets=False):
         time.sleep(1)
         start_run_time = time.time()
 
-        ds_collection = DatasetCollection.from_params(self.params, self.cv_splits)
+        ds_collection = DatasetCollection.from_params(self.params, self.cv_splits, fast=fast_datasets)
 
         if self.multiprocessing == "exp":
             self.run_multi(ds_collection)
         else:
-            for exp_params in tqdm(self.exp_params_list, desc="Running Experiments"):
+            for i, exp_params in enumerate(tqdm(self.exp_params_list, desc="Running Experiments")):
                 exp = Experiment.from_params(exp_params)
                 exp.cv_splits = self.cv_splits
+                exp.index = i
                 exp.set_datasets(ds_collection)
 
                 exp.multiprocessing = (self.multiprocessing == "cv")
 
                 exp.run()
+
+                if self.best_exp is None or exp.report["accuracy"] > self.best_exp.report["accuracy"]:
+                    Print.good("New best: {}".format(np.round(exp.report["accuracy"], 3)))
+                    self.best_exp = exp
+
                 self.exp_reports.append(exp.report)
 
         self.run_time = time.time() - start_run_time
         self.generate_report()
+
+        if self.save_best:
+            from sklearn.externals import joblib
+            fp = Path.classifiers + '/' + "classifier1.pkl"
+
+            joblib.dump(self.best_exp.pipeline, fp)
         # notify("ExperimentSet finished running", "")
 
     def generate_report(self):
@@ -225,7 +269,6 @@ class ExperimentSet:
 
         report = Report(self, self.exp_reports)
         report.generate()
-        report.generate_latex()
 
     @staticmethod
     def worker(i, working_queue, output_q, cv_splits, ds_collection):
@@ -277,16 +320,22 @@ class ExperimentSet:
 
 if __name__ == '__main__':
     params = {
-        "window_length": [10, 100, 250],
-        "dataset_type": "none_arm/left_arm/right_foot/left_foot/right",
-        "classifier": ["svm", "lda", "random_forest", "bagging", "tree", "knn", "gaussian"],
-        "preprocessor": "filter;csp;mean_power",
+        "window_length": 100,
+        "dataset_type": "N-A-F",
+        "sample_trim": "0;3",
+        "ds_split_by": "session",
+        "classifier": "rfc",
+        "preprocessor": ["mean_power", "stats", "csp;mean_power", "filter;mean_power", "filter;stats", "emd;stats",
+                         "dwt;stats", "filter;csp;mean_power"],
         "svm": {
-            "kernel": ["linear", "rbf", "sigmoid"]
+            "kernel": "rbf"
         },
-        "random_forest": {
+        "lda": {
+            "solver": "lsqr"
+        },
+        "rfc": {
             "n_estimators": 100,
-            "criterion": ["gini", "entropy"]
+            "criterion": "entropy"
         },
         "filter": {
             "kernel": "mne",
@@ -297,13 +346,27 @@ if __name__ == '__main__':
         "csp": {
             "kernel": "custom",
             "n_components": 4,
-            "mode": ["1vall", "1v1"]
+            "mode": "1vall"
+        },
+        "emd": {
+            "mode": "set_max",
+            "n_imfs": 1,
+            "max_iter": 10,
+            "subtract_residue": True
+        },
+        "dwt": {
+            "dim": 2,
+            "wavelet": "bior2.4"
         },
         "mean_power": {
             "log": True,
+        },
+        "stats": {
+            "features": "__env__",
+            "splits": 1
         }
     }
 
-    exp_set = ExperimentSet(cv_splits=8, **params)
+    exp_set = ExperimentSet(cv_splits=24, **params)
     exp_set.multiprocessing = "cv"
-    exp_set.run_experiments()
+    exp_set.run_experiments(fast_datasets=False)

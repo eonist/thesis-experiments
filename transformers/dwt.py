@@ -6,9 +6,9 @@ from models.session import Session
 from utils.prints import Print
 
 
-class Wavelet(BaseEstimator, TransformerMixin):
-    def __init__(self, n_dimensions=1, wavelet='db1'):
-        self.n_dimensions = n_dimensions
+class DWT(BaseEstimator, TransformerMixin):
+    def __init__(self, dim=1, wavelet='db1'):
+        self.dim = dim
         self.wavelet = pywt.Wavelet(wavelet)
         self.sample_shape = None
 
@@ -27,20 +27,20 @@ class Wavelet(BaseEstimator, TransformerMixin):
     def _transform_sample(self, sample):
         res = np.zeros([self.sample_shape[0], self.sample_shape[1]])
 
-        if self.n_dimensions == 1:
+        if self.dim == 1:
 
             for i, signal in enumerate(sample):
                 cA, cD = pywt.dwt(signal, self.wavelet)
                 res[i * 2, :] = cA
                 res[i * 2 + 1, :] = cD
 
-        elif self.n_dimensions == 2:
+        elif self.dim == 2:
             coeffs = pywt.dwt2(sample, self.wavelet)
             cA, (cH, cV, cD) = coeffs
-
             res = np.vstack((cA, cH, cV, cD))
+
         else:
-            raise Exception("Invalid n_dimensions: {}".format(self.n_dimensions))
+            raise Exception("Invalid dim: {}".format(self.dim))
 
         return res
 
@@ -48,7 +48,7 @@ class Wavelet(BaseEstimator, TransformerMixin):
         sample = X[0]
         signal = sample[0]
 
-        if self.n_dimensions == 1:
+        if self.dim == 1:
             cA, cD = pywt.dwt(signal, self.wavelet)
 
             cAshape = np.shape(cA)
@@ -56,7 +56,7 @@ class Wavelet(BaseEstimator, TransformerMixin):
 
             self.sample_shape = (2 * len(sample), cAshape[0])
 
-        if self.n_dimensions == 2:
+        if self.dim == 2:
             coeffs = pywt.dwt2(sample, self.wavelet)
             cA, (cH, cV, cD) = coeffs
 
@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     print(indices)
 
-    wavelet = Wavelet(n_dimensions=1, wavelet='db1')
+    wavelet = DWT(dim=1, wavelet='db1')
     wavelet.fit(ds.X)
 
     for i in indices:
