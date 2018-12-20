@@ -321,7 +321,7 @@ class ExperimentSet:
 if __name__ == '__main__':
     params = {
         "window_length": 100,
-        "dataset_type": "N-A-F",
+        "dataset_type": "LA-RA-LF-RF",
         "sample_trim": "0;3",
         "ds_split_by": "session",
         "classifier": "rfc",
