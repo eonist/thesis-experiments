@@ -1,43 +1,58 @@
-import numpy as np
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import cross_val_score, ShuffleSplit
-
-from models.session import Session
-from transformers.csp import CSP
-from transformers.filter import Filter
-
-
-def process_dataset(X, y):
-    filter = Filter(l_freq=7, h_freq=30)
-
-    X = filter.transform(X)
-
-    csp = CSP()
-
-    print(np.shape(X))
-    X = csp.fit_transform(X, y)
-
-    return np.mean(X, axis=2)
-
-
-def classify(X, y):
-    lda = LinearDiscriminantAnalysis()
-
-    cv = ShuffleSplit(n_splits=3, test_size=0.2)
-
-    scores = cross_val_score(lda, X, y, cv=cv, n_jobs=1)
-    print(scores)
+from models.experiment_set import ExperimentSet
 
 
 def main():
-    ds = Session.full_dataset()
-    print(ds.distribution())
-    # ds = Session.combined_dataset([40])
-    y = ds.binary_y("none_rest")
-    X = process_dataset(ds.X, y)
-    print(np.shape(X))
+    params = {
+        "window_length": 100,
+        "dataset_type": "LA-RA-LF-RF",
+        "sample_trim": "0;3",
+        "ds_split_by": "session",
+        "classifier": "rfc",
+        "preprocessor": ["mean_power", "stats", "csp;mean_power", "filter;mean_power", "filter;stats", "emd;stats",
+                         "dwt;stats", "filter;csp;mean_power"],
+        "svm": {
+            "kernel": "rbf"
+        },
+        "lda": {
+            "solver": "lsqr"
+        },
+        "rfc": {
+            "n_estimators": 100,
+            "criterion": "entropy"
+        },
+        "filter": {
+            "kernel": "mne",
+            "l_freq": 20,
+            "h_freq": None,
+            "band": None
+        },
+        "csp": {
+            "kernel": "custom",
+            "n_components": 4,
+            "mode": "1vall"
+        },
+        "emd": {
+            "mode": "set_max",
+            "n_imfs": 1,
+            "max_iter": 10,
+            "subtract_residue": True
+        },
+        "dwt": {
+            "dim": 2,
+            "wavelet": "bior2.4"
+        },
+        "mean_power": {
+            "log": True,
+        },
+        "stats": {
+            "features": "__env__",
+            "splits": 1
+        }
+    }
 
-    classify(X, y)
+    exp_set = ExperimentSet(cv_splits=24, **params)
+    exp_set.multiprocessing = "cv"
+    exp_set.run_experiments(fast_datasets=False)
 
 
 if __name__ == '__main__':
